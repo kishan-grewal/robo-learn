@@ -11,5 +11,13 @@ import torch.optim as optim
 
 from tqdm import trange
 
-for _ in trange(10**8):
-    pass
+class OneDWorld:
+    def __init__(self):
+        pass
+
+if __name__ == "__main__":
+    one_d_world = OneDWorld()
+    print("Hello World")
+
+    for _ in trange(10**8):
+        pass
