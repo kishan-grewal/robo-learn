@@ -9,4 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-print("Hello World")
+from tqdm import trange
+
+for _ in trange(10**8):
+    pass
