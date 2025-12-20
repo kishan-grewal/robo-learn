@@ -60,9 +60,6 @@ class ValueWorld:
             reward = 10.0
             done = True
 
-        if self.steps >= 10:
-            done = True
-
         return self.position, reward, done
 
 
@@ -76,29 +73,55 @@ class QNetwork(nn.Module):
 
 
 if __name__ == "__main__":
+    # SETUP
     env = ValueWorld()
     qnet = QNetwork()
+    optimizer = optim.Adam(qnet.parameters(), lr=1e-3)
+    loss_fn = nn.MSELoss()
 
     epsilon = 0.3  # exploration rate
+    gamma = 0.9  # discount factor
 
-    state = env.reset()
-    total_reward = 0
+    # EPISODE LOOP
+    for episode in range(10):
+        state = env.reset()
+        total_reward = 0
+        done = False
 
-    print("Starting episode")
+        print(f"Starting episode {episode}")
 
-    for t in range(10):
-        action = select_action(qnet, state, epsilon)
-        next_state, reward, done = env.step(action)
+        # STEP LOOP
+        for t in range(5):
+            # STEP
+            action = select_action(qnet, state, epsilon)
 
-        print(
-            f"t={t} | state={state} | action={action} | reward={reward} | next_state={next_state}"
-        )
+            next_state, reward, done = env.step(action)
 
-        state = next_state
-        total_reward += reward
+            print(
+                f"t={t} | state={state} | action={action} | reward={reward} | next_state={next_state}"
+            )
 
-        if done:
-            break
+            # LEARN
+            q_values = qnet(state_to_tensor(state))
 
-    print("Episode finished")
-    print("Total reward:", total_reward)
+            q_value = q_values[0, action]
+
+            with torch.no_grad():
+                next_q_values = qnet(state_to_tensor(next_state))
+                target = reward + gamma * next_q_values.max()
+
+            loss = loss_fn(q_value, target)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            # REWARD
+            total_reward += reward
+            state = next_state
+
+            if done:
+                break
+
+        print("Episode finished")
+        print("Total reward:", total_reward)
