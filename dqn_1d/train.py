@@ -198,13 +198,17 @@ if __name__ == "__main__":
                 q_value = q_value.squeeze(1)  # from (len, 1) to (len,)
 
                 with torch.no_grad():
+                    best_next_actions = qnet(next_states).argmax(dim=1)  # actions e.g. 0 1 2
                     next_q_values = target_qnet(next_states)
                     # dim=x COLLAPSES that dimension, removing it, THEN apply the operation
-                    max_next_q_values = next_q_values.max(dim=1)[
-                        0
-                    ]  # 0 for max, 1 for argmax
+                    # OLD: max_next_q_values = next_q_values.max(dim=1)[0]
+                    # NEW:
+                    max_next_q_values = next_q_values.gather(
+                        1, best_next_actions.unsqueeze(1)
+                    )  # for i in len, select next_q_values[i, best_next_actions[i]]
+                    max_next_q_values = max_next_q_values.squeeze(1)
                     # target = r + γ max_a′ Q(s′, a′)
-                    target = rewards + config.gamma * max_next_q_values * (~dones)
+                    target = rewards + config.gamma * max_next_q_values * (~dones).float()
                     # ~dones just makes it so we only add r for the terminal step
 
                 loss = loss_fn(q_value, target)
@@ -261,6 +265,13 @@ if __name__ == "__main__":
         range(window - 1, len(rewards)),
         moving_avg,
         label=f"{window}-episode moving average"
+    )
+
+    plt.axhline(
+        y=4.8,
+        linestyle="--",
+        linewidth=2,
+        label="Optimal expected reward (4.8)"
     )
 
     plt.xlabel("Episode")
