@@ -5,6 +5,7 @@ import random
 from collections import deque  # replay buffer
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
@@ -18,6 +19,9 @@ class Config:
     epsilon: float = 0.3
     gamma: float = 0.9
     lr: float = 1e-3
+    buffer_max_capacity: int = 256
+    buffer_min_train: int = 32
+    batch_size: int = 32
 
 
 # HELPER FUNCTIONS
@@ -125,19 +129,20 @@ class ReplayBuffer:
 
 
 if __name__ == "__main__":
-    config = Config()
-
     # SETUP
     env = ValueWorld()
     qnet = QNetwork()
-    optimizer = optim.Adam(qnet.parameters(), lr=config.lr)
     loss_fn = nn.MSELoss()
 
-    epsilon = config.epsilon  # exploration rate
-    gamma = config.gamma  # discount factor
+    config = Config()
+    optimizer = optim.Adam(qnet.parameters(), lr=config.lr)
+    buffer = ReplayBuffer(config.buffer_max_capacity)
+
+    # PLOT
+    reward_array = []
 
     # EPISODE LOOP
-    for episode in range(10):
+    for episode in range(100):
         state = env.reset()
         total_reward = 0
         done = False
@@ -145,30 +150,59 @@ if __name__ == "__main__":
         print(f"Starting episode {episode}")
 
         # STEP LOOP
-        for t in range(5):
+        for t in range(10):
             # STEP
-            action = select_action(qnet, state, epsilon)
+            action = select_action(qnet, state, config.epsilon)
 
             next_state, reward, done = env.step(action)
 
-            print(
-                f"t={t} | state={state} | action={action} | reward={reward} | next_state={next_state}"
-            )
+            # print(
+            #     f"t={t} | state={state} | action={action} | reward={reward} | next_state={next_state}"
+            # )
+
+            # LEARN 2
+            buffer.store(state, action, reward, next_state, done)
+
+            if len(buffer) >= config.buffer_min_train:
+                states, actions, rewards, next_states, dones = buffer.sample(
+                    config.batch_size
+                )
+                q_values = qnet(states)
+                q_value = q_values.gather(
+                    1, actions.unsqueeze(1)
+                )  # for i in len, select q_values[i, actions[i]]
+                q_value = q_value.squeeze(1)  # from (len, 1) to (len,)
+
+                with torch.no_grad():
+                    next_q_values = qnet(next_states)
+                    # dim=x COLLAPSES that dimension, removing it, THEN think about the operation
+                    max_next_q_values = next_q_values.max(dim=1)[
+                        0
+                    ]  # 0 for max, 1 for argmax
+                    # target = r + γ max_a′ Q(s′, a′)
+                    target = rewards + config.gamma * max_next_q_values * (~dones)
+                    # ~dones just makes it so we only add r for the terminal step
+
+                loss = loss_fn(q_value, target)
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
             # LEARN
-            q_values = qnet(state_to_tensor(state))
+            # q_values = qnet(state_to_tensor(state))
 
-            q_value = q_values[0, action]
+            # q_value = q_values[0, action]
 
-            with torch.no_grad():
-                next_q_values = qnet(state_to_tensor(next_state))
-                target = reward + gamma * next_q_values.max()
+            # with torch.no_grad():
+            #     next_q_values = qnet(state_to_tensor(next_state))
+            #     target = reward + gamma * next_q_values.max()
 
-            loss = loss_fn(q_value, target)
+            # loss = loss_fn(q_value, target)
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            # optimizer.zero_grad()
+            # loss.backward()
+            # optimizer.step()
 
             # REWARD
             total_reward += reward
@@ -177,5 +211,12 @@ if __name__ == "__main__":
             if done:
                 break
 
-        print("Episode finished")
         print("Total reward:", total_reward)
+        print("Episode finished")
+        reward_array.append(total_reward)
+
+    plt.plot(reward_array)
+    plt.xlabel("Episode")
+    plt.ylabel("Total Reward")
+    plt.title("Training")
+    plt.show()
