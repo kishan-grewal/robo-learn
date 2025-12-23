@@ -2,7 +2,7 @@
 
 # IMPORTS
 import random
-from collections import deque
+from collections import deque  # replay buffer
 
 import numpy as np
 
@@ -11,6 +11,13 @@ import torch.nn as nn
 import torch.optim as optim
 
 from tqdm import trange
+
+
+# DATA CLASSES
+class Config:
+    epsilon: float = 0.3
+    gamma: float = 0.9
+    lr: float = 1e-3
 
 
 # HELPER FUNCTIONS
@@ -72,15 +79,62 @@ class QNetwork(nn.Module):
         return self.net(x)
 
 
+# used to give us a history of some of the transitions so we can train without fitting to time
+class ReplayBuffer:
+    def __init__(self, capacity):
+        self.buffer = deque(maxlen=capacity)
+        self.capacity = capacity
+
+    def store(self, state, action, reward, next_state, done):
+        transition = (
+            state,
+            action,
+            reward,
+            next_state,
+            done,
+        )  # just a tuple, we add one at a time with .store
+        self.buffer.append(transition)
+
+    def sample(self, batch_size):
+        # this is like going from looking at each row of the batch matrix [s1 a1 r1 .. s2 a2 r2..] to looking at each column [s1 s2 s3 .. a1 a2 a3]
+        batch = random.sample(self.buffer, batch_size)
+        states, actions, rewards, next_states, dones = zip(*batch)
+
+        # weird pytorch stuff
+        states = torch.tensor(states, dtype=torch.float32).unsqueeze(
+            1
+        )  # used by the network, network wants (batch_size, 1) not (batch_size,)
+        actions = torch.tensor(actions, dtype=torch.long)
+        rewards = torch.tensor(rewards, dtype=torch.float32)
+        next_states = torch.tensor(next_states, dtype=torch.float32).unsqueeze(
+            1
+        )  # used by the network too
+        dones = torch.tensor(dones, dtype=torch.bool)
+        # we unsqueeze when a tensor needs to match a spatial/feature dimension, when feeding into a layer,
+        # all other times it is just data values that participate in math operations, and we should not unsqueeze
+        # its like an explicit matrix of vector size, vs just an actual vector
+        # a layer cannot take in a vector, but we need the vector for math (x, 1) vs (x,)
+
+        return states, actions, rewards, next_states, dones
+
+    def __len__(self):
+        return len(self.buffer)
+
+    def is_full(self):
+        return len(self) == self.capacity
+
+
 if __name__ == "__main__":
+    config = Config()
+
     # SETUP
     env = ValueWorld()
     qnet = QNetwork()
-    optimizer = optim.Adam(qnet.parameters(), lr=1e-3)
+    optimizer = optim.Adam(qnet.parameters(), lr=config.lr)
     loss_fn = nn.MSELoss()
 
-    epsilon = 0.3  # exploration rate
-    gamma = 0.9  # discount factor
+    epsilon = config.epsilon  # exploration rate
+    gamma = config.gamma  # discount factor
 
     # EPISODE LOOP
     for episode in range(10):
