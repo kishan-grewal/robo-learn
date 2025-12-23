@@ -13,15 +13,22 @@ import torch.optim as optim
 
 from tqdm import trange
 
+HIDDEN_LAYER_NODES = 32
+
 
 # DATA CLASSES
 class Config:
-    epsilon: float = 0.3
+    episode_count: int = 1000
+    step_count: int = 20
     gamma: float = 0.9
     lr: float = 1e-3
-    buffer_max_capacity: int = 256
+    buffer_max_capacity: int = 1000
     buffer_min_train: int = 32
     batch_size: int = 32
+    target_update_freq: int = 50
+    epsilon_start: float = 1.0
+    epsilon_end: float = 0.05
+    epsilon_decay: float = 0.995
 
 
 # HELPER FUNCTIONS
@@ -77,7 +84,11 @@ class ValueWorld:
 class QNetwork(nn.Module):
     def __init__(self):
         super().__init__()
-        self.net = nn.Sequential(nn.Linear(1, 32), nn.ReLU(), nn.Linear(32, 3))
+        self.net = nn.Sequential(
+            nn.Linear(1, HIDDEN_LAYER_NODES),
+            nn.ReLU(),
+            nn.Linear(HIDDEN_LAYER_NODES, 3),
+        )
 
     def forward(self, x):
         return self.net(x)
@@ -137,12 +148,20 @@ if __name__ == "__main__":
     config = Config()
     optimizer = optim.Adam(qnet.parameters(), lr=config.lr)
     buffer = ReplayBuffer(config.buffer_max_capacity)
+    target_qnet = QNetwork()
 
     # PLOT
     reward_array = []
 
+    # target network and step count (train on a stable target more than 1 step)
+    target_qnet.load_state_dict(qnet.state_dict())
+    step_counter = 0
+
+    # epsilon greedy parameter decay (become less explorative)
+    epsilon = config.epsilon_start
+
     # EPISODE LOOP
-    for episode in range(100):
+    for episode in trange(config.episode_count):
         state = env.reset()
         total_reward = 0
         done = False
@@ -150,9 +169,11 @@ if __name__ == "__main__":
         print(f"Starting episode {episode}")
 
         # STEP LOOP
-        for t in range(10):
+        for t in range(config.step_count):
             # STEP
-            action = select_action(qnet, state, config.epsilon)
+            step_counter += 1
+
+            action = select_action(qnet, state, epsilon)
 
             next_state, reward, done = env.step(action)
 
@@ -174,8 +195,8 @@ if __name__ == "__main__":
                 q_value = q_value.squeeze(1)  # from (len, 1) to (len,)
 
                 with torch.no_grad():
-                    next_q_values = qnet(next_states)
-                    # dim=x COLLAPSES that dimension, removing it, THEN think about the operation
+                    next_q_values = target_qnet(next_states)
+                    # dim=x COLLAPSES that dimension, removing it, THEN apply the operation
                     max_next_q_values = next_q_values.max(dim=1)[
                         0
                     ]  # 0 for max, 1 for argmax
@@ -188,6 +209,13 @@ if __name__ == "__main__":
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+
+            # update target
+            if step_counter % config.target_update_freq == 0:
+                target_qnet.load_state_dict(qnet.state_dict())
+
+            # update epsilon
+            epsilon = max(config.epsilon_end, epsilon * config.epsilon_decay)
 
             # LEARN
             # q_values = qnet(state_to_tensor(state))
@@ -215,8 +243,25 @@ if __name__ == "__main__":
         print("Episode finished")
         reward_array.append(total_reward)
 
-    plt.plot(reward_array)
+    rewards = np.array(reward_array)
+
+    window = 50  # try 25, 50, or 100
+    moving_avg = np.convolve(
+        rewards,
+        np.ones(window) / window,
+        mode="valid"
+    )
+
+    plt.plot(rewards, alpha=0.3, label="Episode reward")
+    plt.plot(
+        range(window - 1, len(rewards)),
+        moving_avg,
+        label=f"{window}-episode moving average"
+    )
+
     plt.xlabel("Episode")
     plt.ylabel("Total Reward")
-    plt.title("Training")
+    plt.title("Training Reward (Smoothed)")
+    plt.legend()
     plt.show()
+
