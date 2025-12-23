@@ -28,7 +28,11 @@ class Config:
 
 # HELPER FUNCTIONS
 def state_to_tensor(state):
-    return torch.tensor([[state]], dtype=torch.float32)
+    # state is shape (4,) from gym
+    # Need to convert to (1, 4) for network
+    if isinstance(state, np.ndarray):
+        return torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+    return torch.tensor([state], dtype=torch.float32)
 
 
 def select_action(qnet, state, epsilon):
@@ -86,7 +90,20 @@ if __name__ == "__main__":
             next_obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
 
-            # learn
+            # learn 1
+            q_values = qnet(state_to_tensor(obs))
+
+            q_value = q_values[0, action]
+
+            with torch.no_grad():
+                next_q_values = qnet(state_to_tensor(next_obs))
+                target = reward + config.gamma * next_q_values.max()
+
+            loss = loss_fn(q_value, target)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
             # reward
             total_reward += reward

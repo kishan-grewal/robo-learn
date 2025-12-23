@@ -229,7 +229,7 @@ if __name__ == "__main__":
             # update epsilon
             epsilon = max(config.epsilon_end, epsilon * config.epsilon_decay)
 
-            # LEARN
+            # LEARN 1
             # q_values = qnet(state_to_tensor(state))
 
             # q_value = q_values[0, action]
