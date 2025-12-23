@@ -198,7 +198,9 @@ if __name__ == "__main__":
                 q_value = q_value.squeeze(1)  # from (len, 1) to (len,)
 
                 with torch.no_grad():
-                    best_next_actions = qnet(next_states).argmax(dim=1)  # actions e.g. 0 1 2
+                    best_next_actions = qnet(next_states).argmax(
+                        dim=1
+                    )  # actions e.g. 0 1 2
                     next_q_values = target_qnet(next_states)
                     # dim=x COLLAPSES that dimension, removing it, THEN apply the operation
                     # OLD: max_next_q_values = next_q_values.max(dim=1)[0]
@@ -208,7 +210,9 @@ if __name__ == "__main__":
                     )  # for i in len, select next_q_values[i, best_next_actions[i]]
                     max_next_q_values = max_next_q_values.squeeze(1)
                     # target = r + γ max_a′ Q(s′, a′)
-                    target = rewards + config.gamma * max_next_q_values * (~dones).float()
+                    target = (
+                        rewards + config.gamma * max_next_q_values * (~dones).float()
+                    )
                     # ~dones just makes it so we only add r for the terminal step
 
                 loss = loss_fn(q_value, target)
@@ -254,24 +258,17 @@ if __name__ == "__main__":
     rewards = np.array(reward_array)
 
     window = 100  # try 25, 50, or 100
-    moving_avg = np.convolve(
-        rewards,
-        np.ones(window) / window,
-        mode="valid"
-    )
+    moving_avg = np.convolve(rewards, np.ones(window) / window, mode="valid")
 
     plt.plot(rewards, alpha=0.3, label="Episode reward")
     plt.plot(
         range(window - 1, len(rewards)),
         moving_avg,
-        label=f"{window}-episode moving average"
+        label=f"{window}-episode moving average",
     )
 
     plt.axhline(
-        y=4.8,
-        linestyle="--",
-        linewidth=2,
-        label="Optimal expected reward (4.8)"
+        y=4.8, linestyle="--", linewidth=2, label="Optimal expected reward (4.8)"
     )
 
     plt.xlabel("Episode")
@@ -285,17 +282,13 @@ if __name__ == "__main__":
     losses = np.array(loss_array)
 
     window = 100  # try 25, 50, or 100
-    loss_moving_avg = np.convolve(
-        losses,
-        np.ones(window) / window,
-        mode="valid"
-    )
+    loss_moving_avg = np.convolve(losses, np.ones(window) / window, mode="valid")
 
     plt.plot(losses, alpha=0.3, label="Training loss")
     plt.plot(
         range(window - 1, len(losses)),
         loss_moving_avg,
-        label=f"{window}-step moving average"
+        label=f"{window}-step moving average",
     )
 
     plt.xlabel("Training step")
@@ -303,5 +296,3 @@ if __name__ == "__main__":
     plt.title("Training Loss (Smoothed)")
     plt.legend()
     plt.show()
-
-
