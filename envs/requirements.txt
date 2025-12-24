@@ -4,3 +4,4 @@ matplotlib
 tensorboard
 tqdm
 gymnasium[classic-control]
+argparse

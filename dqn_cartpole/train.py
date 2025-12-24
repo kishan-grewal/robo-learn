@@ -15,14 +15,16 @@ from tqdm import trange
 
 import gymnasium as gym
 
+import os
+
 HIDDEN_LAYER_NODES = 32
 
 
 # DATA CLASSES
 class Config:
-    episode_count: int = 1000
+    episode_count: int = 1200
     gamma: float = 0.99
-    lr: float = 5e-4
+    lr: float = 1e-3
     # replay buffer
     buffer_capacity: int = 5000
     buffer_mintrain: int = 500
@@ -206,7 +208,7 @@ if __name__ == "__main__":
 
     # PLOT THE REWARD
     rewards = np.array(reward_array)
-    window = 50
+    window = 200
     reward_moving_avg = np.convolve(rewards, np.ones(window) / window, mode="valid")
 
     plt.plot(rewards, alpha=0.3, label="Training")
@@ -223,7 +225,7 @@ if __name__ == "__main__":
 
     # PLOT THE LOSS
     losses = np.array(loss_array)
-    window = 25
+    window = 200
     loss_moving_avg = np.convolve(losses, np.ones(window) / window, mode="valid")
 
     plt.plot(losses, alpha=0.3, label="Loss")
@@ -237,3 +239,8 @@ if __name__ == "__main__":
     plt.title("CartPole Training")
     plt.legend()
     plt.show()
+
+    # save the model
+    os.makedirs("models", exist_ok=True)
+    torch.save(qnet.state_dict(), 'models/cartpole_qnet.pth')
+    print("Model saved to models/cartpole_qnet.pth")
