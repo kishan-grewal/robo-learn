@@ -20,7 +20,7 @@ HIDDEN_LAYER_NODES = 32
 
 # DATA CLASSES
 class Config:
-    episode_count: int = 800
+    episode_count: int = 650
     gamma: float = 0.99
     lr: float = 1e-3
     # replay buffer
@@ -109,6 +109,7 @@ if __name__ == "__main__":
     print("observation = incomplete state, the state is the true real world state")
 
     # setup env
+    # env = gym.make("CartPole-v1", render_mode="human")
     env = gym.make("CartPole-v1")
     state_dim = env.observation_space.shape[0]  # 4
     action_dim = env.action_space.n  # 2

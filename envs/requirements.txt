@@ -3,3 +3,4 @@ numpy
 matplotlib
 tensorboard
 tqdm
+gymnasium[classic-control]
