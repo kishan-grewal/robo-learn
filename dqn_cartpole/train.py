@@ -167,9 +167,15 @@ if __name__ == "__main__":
                 q_value = q_value.squeeze(1)
 
                 with torch.no_grad():
+                    # next_q_values = target_qnet(next_obss)
+                    # # 0 for max 1 for argmax, and we want the max in each row (max action for each state)
+                    # max_next_q_values = next_q_values.max(dim=1)[0]
+
+                    best_next_actions = qnet(next_obss).argmax(dim=1)
                     next_q_values = target_qnet(next_obss)
-                    # 0 for max 1 for argmax, and we want the max in each row (max action for each state)
-                    max_next_q_values = next_q_values.max(dim=1)[0]
+                    max_next_q_values = next_q_values.gather(1, best_next_actions.unsqueeze(1))
+                    max_next_q_values = max_next_q_values.squeeze(1)
+
                     target = (
                         rewards + config.gamma * max_next_q_values * (~dones).float()
                     )
