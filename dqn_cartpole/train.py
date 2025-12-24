@@ -20,9 +20,9 @@ HIDDEN_LAYER_NODES = 32
 
 # DATA CLASSES
 class Config:
-    episode_count: int = 650
+    episode_count: int = 1000
     gamma: float = 0.99
-    lr: float = 1e-3
+    lr: float = 5e-4
     # replay buffer
     buffer_capacity: int = 5000
     buffer_mintrain: int = 500
