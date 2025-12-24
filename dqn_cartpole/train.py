@@ -21,7 +21,7 @@ HIDDEN_LAYER_NODES = 32
 # DATA CLASSES
 class Config:
     episode_count: int = 800
-    gamma: float = 0.95
+    gamma: float = 0.99
     lr: float = 1e-3
     # replay buffer
     buffer_capacity: int = 5000
@@ -166,7 +166,7 @@ if __name__ == "__main__":
                 q_value = q_value.squeeze(1)
 
                 with torch.no_grad():
-                    next_q_values = qnet(next_obss)
+                    next_q_values = target_qnet(next_obss)
                     # 0 for max 1 for argmax, and we want the max in each row (max action for each state)
                     max_next_q_values = next_q_values.max(dim=1)[0]
                     target = (
