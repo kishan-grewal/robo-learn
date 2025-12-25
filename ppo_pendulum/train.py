@@ -90,29 +90,32 @@ if __name__ == "__main__":
         done = False
 
         episode_states = []
-        episode_actions = []
+        episode_actions_raw = []
         episode_rewards = []
         # clipped surrogate loss for ppo
         episode_log_probs_old = []
 
         while not done:
             with torch.no_grad():
-                logits = policy_net(state_to_tensor(obs))
-                # logits.shape: (1, 4)
-                probs = torch.softmax(logits, dim=1)
-                # probs.shape: (1, 2)
-                action = torch.multinomial(probs, 1).item()
-                # action: int
+                mu, std = policy_net(state_to_tensor(obs))
+                # mu.shape: (1, 1), std.shape: (1,)
 
-                # FOR USE IN CLIPPED SURROGATE LOSS FOR PPO
-                # log_softmax(logits, dim=1).shape: (1, 2)
-                log_prob_old = torch.log_softmax(logits, dim=1)[0, action]
+                dist = torch.distributions.Normal(mu, std)
+                action_raw = dist.sample()  # may not be between -2 and 2
+                log_prob_old = dist.log_prob(action_raw).sum(
+                    dim=-1
+                )  # sum over action dims
 
-            next_obs, reward, terminated, truncated, info = env.step(action)
+                # scale action to environments
+                # policy net doesnt know about the environment action cap
+                action = torch.tanh(action_raw) * 2.0
+                action_np = action.squeeze().numpy()
+
+            next_obs, reward, terminated, truncated, info = env.step([action_np])
             done = terminated or truncated
 
             episode_states.append(obs)
-            episode_actions.append(action)
+            episode_actions_raw.append(action_raw)  # we only store the raw action
             episode_rewards.append(reward)
             # clipped surrogate loss for ppo
             episode_log_probs_old.append(log_prob_old)
@@ -149,14 +152,16 @@ if __name__ == "__main__":
             total_policy_loss = 0
             total_value_loss = 0
 
-            for t, (obs, action) in enumerate(zip(episode_states, episode_actions)):
+            for t, (obs, action_raw) in enumerate(
+                zip(episode_states, episode_actions_raw)
+            ):
                 G_t = returns[t]
                 baseline_t = baselines[t]
                 advantage_t = advantages[t]
 
-                logits = policy_net(state_to_tensor(obs))
-                log_probs = torch.log_softmax(logits, dim=1)
-                log_prob = log_probs[0, action]
+                mu, std = policy_net(state_to_tensor(obs))
+                dist = torch.distributions.Normal(mu, std)
+                log_prob = dist.log_prob(action_raw).sum(dim=-1)
 
                 # surrogate = (π_new / π_old) * advantage
                 # surrogate = (p_new / p_old) * (G - v(s))
