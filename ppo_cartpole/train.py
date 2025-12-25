@@ -127,25 +127,22 @@ if __name__ == "__main__":
             G = r + config.gamma * G
             returns.insert(0, G)  # adds to it from the back to front
 
-        # train on collected episode !
-
-        # tensor creation
-        baselines = torch.cat(
-            [value_net(state_to_tensor(obs)) for obs in episode_states]
-        )
-        baselines = baselines.squeeze()
-
-        returns = torch.tensor(returns, dtype=torch.float32)
-        advantages = returns - baselines
-
-        # normalize advantages (FOR PPO)
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-
-        # detach advantages from the gradient graph, it isnt used for gradient descent
-        # cannot be backpropped through
-        advantages = advantages.detach()
-
+        # train on collected episode !!!
         for epoch in range(config.epoch_count):
+            # tensor creation
+            returns = torch.tensor(returns, dtype=torch.float32)
+            baselines = torch.cat(
+                [value_net(state_to_tensor(obs)) for obs in episode_states]
+            ).squeeze()
+            advantages = returns - baselines
+
+            # normalize advantages (FOR PPO)
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+            # detach advantages from the gradient graph, it isnt used for gradient descent
+            # cannot be backpropped through
+            advantages = advantages.detach()
+
             policy_optimizer.zero_grad()
             value_optimizer.zero_grad()
 
