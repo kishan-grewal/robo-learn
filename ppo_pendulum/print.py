@@ -10,6 +10,18 @@ print("https://gymnasium.farama.org/environments/classic_control/pendulum/")
 # reset and inspect
 obs, info = env.reset()
 
+print(
+    """
+# notes
+# obs gives cos and sin of theta + thetadot, not raw theta
+# this is because there is a discontinuity in theta at the bottom
+# radius = 1, theta = [-pi, pi] where 0 is at the top, the target and +-pi is at the bottom
+# there are no positive rewards, just a negative reward each step
+# R = -(th^2 + 0.1 * thdot^2 + 0.001 * tau^2)
+# max torque = +- 2 Nm and max thdot = +- 8 rad/s
+      """
+)
+
 print("obs:", obs)  # [cos(theta), sin(theta), theta_dot]
 print("obs shape:", obs.shape)  # (3,)
 print("obs dtype:", obs.dtype)  # float32
@@ -64,3 +76,11 @@ print(
 \n5. Observation is [cos(theta), sin(theta), theta_dot] not raw angle
 \n6. Max episode reward ~0 (perfect), random policy gets ~-1000 to -1500\n"""
 )
+
+# notes
+# obs gives cos and sin of theta + thetadot, not raw theta
+# this is because there is a discontinuity in theta at the bottom
+# radius = 1, theta = [-pi, pi] where 0 is at the top, the target and +-pi is at the bottom
+# there are no positive rewards, just a negative reward each step
+# R = -(th^2 + 0.1 * thdot^2 + 0.001 * tau^2)
+# max torque = +- 2 Nm and max thdot = +- 8 rad/s
