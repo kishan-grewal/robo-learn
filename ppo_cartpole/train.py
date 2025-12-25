@@ -26,6 +26,7 @@ HIDDEN_LAYER_NODES_VALUE = 64
 class Config:
     episode_count: int = 1000
     gamma: float = 0.99
+    epsilon: float = 0.2  # standard for PPO 1 +- eps
     lr: float = 1e-3
 
 
@@ -90,6 +91,8 @@ if __name__ == "__main__":
         episode_states = []
         episode_actions = []
         episode_rewards = []
+        # clipped surrogate loss for ppo
+        episode_log_probs_old = []
 
         while not done:
             with torch.no_grad():
@@ -100,12 +103,18 @@ if __name__ == "__main__":
                 action = torch.multinomial(probs, 1).item()
                 # action: int
 
+                # FOR USE IN CLIPPED SURROGATE LOSS FOR PPO
+                # log_softmax(logits, dim=1).shape: (1, 2)
+                log_prob_old = torch.log_softmax(logits, dim=1)[0, action]
+
             next_obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
 
             episode_states.append(obs)
             episode_actions.append(action)
             episode_rewards.append(reward)
+            # clipped surrogate loss for ppo
+            episode_log_probs_old.append(log_prob_old)
 
             obs = next_obs
 
@@ -127,9 +136,11 @@ if __name__ == "__main__":
         total_value_loss = 0
 
         # tensor creation
-        baselines = torch.cat([value_net(state_to_tensor(obs)) for obs in episode_states])
+        baselines = torch.cat(
+            [value_net(state_to_tensor(obs)) for obs in episode_states]
+        )
         baselines = baselines.squeeze()
-        
+
         returns = torch.tensor(returns, dtype=torch.float32)
         advantages = returns - baselines
 
@@ -149,7 +160,18 @@ if __name__ == "__main__":
             log_probs = torch.log_softmax(logits, dim=1)
             log_prob = log_probs[0, action]
 
-            total_policy_loss += -advantage_t * log_prob
+            # surrogate = (π_new / π_old) * advantage
+            # surrogate = (p_new / p_old) * (G - v(s))
+            log_prob_old = episode_log_probs_old[t].detach()
+            ratio = torch.exp(log_prob - log_prob_old)
+            surrogate = ratio * advantage_t
+            # clip the surrogate
+            clipped_surrogate = (
+                torch.clamp(ratio, 1 - config.epsilon, 1 + config.epsilon) * advantage_t
+            )
+            policy_loss = -torch.min(surrogate, clipped_surrogate)
+
+            total_policy_loss += policy_loss
             total_value_loss += (G_t - baseline_t) ** 2
 
         # Single update per episode
