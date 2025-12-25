@@ -92,12 +92,13 @@ if __name__ == "__main__":
         episode_rewards = []
 
         while not done:
-            logits = policy_net(state_to_tensor(obs))
-            # logits.shape: (1, 4)
-            probs = torch.softmax(logits, dim=1)
-            # probs.shape: (1, 2)
-            action = torch.multinomial(probs, 1).item()
-            # action: int
+            with torch.no_grad():
+                logits = policy_net(state_to_tensor(obs))
+                # logits.shape: (1, 4)
+                probs = torch.softmax(logits, dim=1)
+                # probs.shape: (1, 2)
+                action = torch.multinomial(probs, 1).item()
+                # action: int
 
             next_obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
