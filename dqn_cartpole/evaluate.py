@@ -5,14 +5,21 @@ import torch
 import gymnasium as gym
 from train import QNetwork, state_to_tensor
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate trained CartPole-v1 DQN agent")
-    parser.add_argument('--episodes', type=int, default=5, help='Number of episodes to run')
-    parser.add_argument('--render', action='store_false', help='Render the environment with gymnasium')
+    parser = argparse.ArgumentParser(
+        description="Evaluate trained CartPole-v1 DQN agent"
+    )
+    parser.add_argument(
+        "--episodes", type=int, default=5, help="Number of episodes to run"
+    )
+    parser.add_argument(
+        "--render", action="store_false", help="Render the environment with gymnasium"
+    )
     args = parser.parse_args()
 
     # setup
-    env = gym.make('CartPole-v1', render_mode='human' if args.render else None)
+    env = gym.make("CartPole-v1", render_mode="human" if args.render else None)
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
 
@@ -23,7 +30,7 @@ def main():
 
     # run episodes
     episode_rewards = []
-    
+
     for episode in range(args.episodes):
         obs, info = env.reset()
         total_reward = 0
@@ -40,9 +47,12 @@ def main():
 
         episode_rewards.append(total_reward)
         print(f"Episodes {episode + 1}: {total_reward}")
-    
-    print(f"\nAverage reward over {args.episodes} episodes: {sum(episode_rewards) / len(episode_rewards):.2f}")
+
+    print(
+        f"\nAverage reward over {args.episodes} episodes: {sum(episode_rewards) / len(episode_rewards):.2f}"
+    )
     env.close()
+
 
 if __name__ == "__main__":
     main()

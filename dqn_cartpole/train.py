@@ -175,7 +175,9 @@ if __name__ == "__main__":
 
                     best_next_actions = qnet(next_obss).argmax(dim=1)
                     next_q_values = target_qnet(next_obss)
-                    max_next_q_values = next_q_values.gather(1, best_next_actions.unsqueeze(1))
+                    max_next_q_values = next_q_values.gather(
+                        1, best_next_actions.unsqueeze(1)
+                    )
                     max_next_q_values = max_next_q_values.squeeze(1)
 
                     target = (
@@ -242,5 +244,5 @@ if __name__ == "__main__":
 
     # save the model
     os.makedirs("models", exist_ok=True)
-    torch.save(qnet.state_dict(), 'models/cartpole_qnet.pth')
+    torch.save(qnet.state_dict(), "models/cartpole_qnet.pth")
     print("Model saved to models/cartpole_qnet.pth")
