@@ -24,7 +24,8 @@ HIDDEN_LAYER_NODES_VALUE = 64
 
 # DATA CLASSES
 class Config:
-    episode_count: int = 1000
+    episode_count: int = 500
+    epoch_count: int = 3 # standard for PPO
     gamma: float = 0.99
     epsilon: float = 0.2  # standard for PPO 1 +- eps
     lr: float = 1e-3
@@ -126,14 +127,7 @@ if __name__ == "__main__":
             G = r + config.gamma * G
             returns.insert(0, G)  # adds to it from the back to front
 
-        # train on collected episode
-
-        # train on collected episode
-        policy_optimizer.zero_grad()
-        value_optimizer.zero_grad()
-
-        total_policy_loss = 0
-        total_value_loss = 0
+        # train on collected episode !
 
         # tensor creation
         baselines = torch.cat(
@@ -151,38 +145,45 @@ if __name__ == "__main__":
         # cannot be backpropped through
         advantages = advantages.detach()
 
-        for t, (obs, action) in enumerate(zip(episode_states, episode_actions)):
-            G_t = returns[t]
-            baseline_t = baselines[t]
-            advantage_t = advantages[t]
+        for epoch in range(config.epoch_count):
+            policy_optimizer.zero_grad()
+            value_optimizer.zero_grad()
 
-            logits = policy_net(state_to_tensor(obs))
-            log_probs = torch.log_softmax(logits, dim=1)
-            log_prob = log_probs[0, action]
+            total_policy_loss = 0
+            total_value_loss = 0
 
-            # surrogate = (π_new / π_old) * advantage
-            # surrogate = (p_new / p_old) * (G - v(s))
-            log_prob_old = episode_log_probs_old[t].detach()
-            ratio = torch.exp(log_prob - log_prob_old)
-            surrogate = ratio * advantage_t
-            # clip the surrogate
-            clipped_surrogate = (
-                torch.clamp(ratio, 1 - config.epsilon, 1 + config.epsilon) * advantage_t
-            )
-            policy_loss = -torch.min(surrogate, clipped_surrogate)
+            for t, (obs, action) in enumerate(zip(episode_states, episode_actions)):
+                G_t = returns[t]
+                baseline_t = baselines[t]
+                advantage_t = advantages[t]
 
-            total_policy_loss += policy_loss
-            total_value_loss += (G_t - baseline_t) ** 2
+                logits = policy_net(state_to_tensor(obs))
+                log_probs = torch.log_softmax(logits, dim=1)
+                log_prob = log_probs[0, action]
 
-        # Single update per episode
-        total_policy_loss.backward()
-        policy_optimizer.step()
+                # surrogate = (π_new / π_old) * advantage
+                # surrogate = (p_new / p_old) * (G - v(s))
+                log_prob_old = episode_log_probs_old[t].detach()
+                ratio = torch.exp(log_prob - log_prob_old)
+                surrogate = ratio * advantage_t
+                # clip the surrogate
+                clipped_surrogate = (
+                    torch.clamp(ratio, 1 - config.epsilon, 1 + config.epsilon) * advantage_t
+                )
+                policy_loss = -torch.min(surrogate, clipped_surrogate)
 
-        total_value_loss.backward()
-        value_optimizer.step()
+                total_policy_loss += policy_loss
+                total_value_loss += (G_t - baseline_t) ** 2
 
-        policy_loss_array.append(total_policy_loss.item())
-        value_loss_array.append(total_value_loss.item())
+            # Single update per epoch
+            total_policy_loss.backward()
+            policy_optimizer.step()
+
+            total_value_loss.backward()
+            value_optimizer.step()
+
+            policy_loss_array.append(total_policy_loss.item())
+            value_loss_array.append(total_value_loss.item())
 
     # PLOT TOTAL REWARD
     total_rewards = np.array(total_reward_array)
