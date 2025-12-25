@@ -25,7 +25,7 @@ HIDDEN_LAYER_NODES_VALUE = 64
 # DATA CLASSES
 class Config:
     episode_count: int = 500
-    epoch_count: int = 3 # standard for PPO
+    epoch_count: int = 3  # standard for PPO
     gamma: float = 0.99
     epsilon: float = 0.2  # standard for PPO 1 +- eps
     lr: float = 1e-3
@@ -165,7 +165,8 @@ if __name__ == "__main__":
                 surrogate = ratio * advantage_t
                 # clip the surrogate
                 clipped_surrogate = (
-                    torch.clamp(ratio, 1 - config.epsilon, 1 + config.epsilon) * advantage_t
+                    torch.clamp(ratio, 1 - config.epsilon, 1 + config.epsilon)
+                    * advantage_t
                 )
                 policy_loss = -torch.min(surrogate, clipped_surrogate)
 
