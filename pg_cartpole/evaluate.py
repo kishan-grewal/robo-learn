@@ -3,7 +3,7 @@
 import argparse
 import torch
 import gymnasium as gym
-from train import PolicyNetwork, ValueNetwork, state_to_tensor
+from train import PolicyNetwork, state_to_tensor
 
 
 def main():

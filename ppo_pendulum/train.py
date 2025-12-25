@@ -18,11 +18,11 @@ HIDDEN_LAYER_NODES_VALUE = 64
 
 # DATA CLASSES
 class Config:
-    episode_count: int = 1000  # needs more episodes
-    epoch_count: int = 10  # can do more epochs
+    episode_count: int = 500
+    epoch_count: int = 3  # standard for PPO
     gamma: float = 0.99
-    epsilon: float = 0.2
-    lr: float = 3e-4  # slightly lower
+    epsilon: float = 0.2  # standard for PPO 1 +- eps
+    lr: float = 1e-3
 
 
 # HELPER FUNCTIONS
