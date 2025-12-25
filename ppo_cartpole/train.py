@@ -1,4 +1,4 @@
-# pg_cartpole/train.py
+# ppo_cartpole/train.py
 
 # IMPORTS
 import random

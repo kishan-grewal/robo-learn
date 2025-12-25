@@ -1,4 +1,4 @@
-# dqn_cartpole/evaluate.py
+# pg_cartpole/evaluate.py
 
 import argparse
 import torch
