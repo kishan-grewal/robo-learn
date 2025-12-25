@@ -8,7 +8,7 @@ from train import PolicyNetwork, ValueNetwork, state_to_tensor
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Evaluate trained CartPole-v1 DQN agent"
+        description="Evaluate trained CartPole-v1 PG agent"
     )
     parser.add_argument(
         "--episodes", type=int, default=5, help="Number of episodes to run"
