@@ -14,12 +14,12 @@ def main():
         "--episodes", type=int, default=5, help="Number of episodes to run"
     )
     parser.add_argument(
-        "--render", action="store_false", help="Render the environment with gymnasium"
+        "--no-render", action="store_false", help="Render the environment with gymnasium"
     )
     args = parser.parse_args()
 
     # setup
-    env = gym.make("CartPole-v1", render_mode="human" if args.render else None)
+    env = gym.make("CartPole-v1", render_mode="human" if args.no_render else None)
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
 
