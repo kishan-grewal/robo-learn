@@ -20,8 +20,10 @@ LOG_STD_MAX = 1.0
 
 # DATA CLASSES
 class Config:
-    episode_count: int = 800
-    epoch_count: int = 3
+    total_timesteps: int = 200000
+    rollout_steps: int = 2048
+    minibatch_size: int = 256
+    update_epochs: int = 10
     gamma: float = 0.99
     gae_lambda: float = 0.95
     epsilon: float = 0.2
@@ -105,91 +107,111 @@ if __name__ == "__main__":
     actor_critic = ActorCritic(state_dim, action_dim)
     ac_optimizer = optim.Adam(actor_critic.parameters(), lr=config.lr)
 
+    # Pre-allocated tensor buffers (instead of Python lists)
+    obs_buf = torch.zeros((config.rollout_steps, state_dim))
+    act_buf = torch.zeros((config.rollout_steps, action_dim))
+    rew_buf = torch.zeros(config.rollout_steps)
+    done_buf = torch.zeros(config.rollout_steps)
+    logprob_buf = torch.zeros(config.rollout_steps)
+    value_buf = torch.zeros(config.rollout_steps)
+
     # plot reward
     total_reward_array = []
 
-    # episode loop
-    for episode in trange(config.episode_count):
-        obs, info = env.reset()
-        done = False
+    # global step and num updates
+    global_step = 0
+    num_updates = config.total_timesteps // config.rollout_steps
 
-        episode_states = []
-        episode_actions = []
-        episode_rewards = []
-        # for clipped surrogate loss
-        episode_log_probs_old = []
-        episode_values = []
+    obs, _ = env.reset()
+    ep_return = 0.0
 
-        while not done:
+    for update in trange(num_updates):
+        # ROLLOUT COLLECTION
+        for step in range(config.rollout_steps):
+            global_step += 1
+
             with torch.no_grad():
-                action_env, logprob, entropy, z = actor_critic.get_action_and_logprob(state_to_tensor(obs))
-                value = actor_critic.value(state_to_tensor(obs))
+                obs_tensor = state_to_tensor(obs)
+                action_env, logprob, entropy, z = actor_critic.get_action_and_logprob(obs_tensor)
+                value = actor_critic.value(obs_tensor)
                 action_np = action_env.squeeze().numpy()
 
             next_obs, reward, terminated, truncated, info = env.step([action_np])
             done = terminated or truncated
 
-            episode_states.append(obs)
-            episode_actions.append(action_env)
-            episode_rewards.append(reward)
-            episode_log_probs_old.append(logprob)
-            episode_values.append(value)
+            # Store in buffers
+            obs_buf[step] = obs_tensor.squeeze(0)
+            act_buf[step] = action_env.squeeze(0)
+            rew_buf[step] = reward
+            done_buf[step] = 1.0 if done else 0.0
+            logprob_buf[step] = logprob.squeeze(0)
+            value_buf[step] = value.squeeze(0)
 
+            ep_return += reward
             obs = next_obs
 
-        total_reward_array.append(sum(episode_rewards))
+            if done:
+                total_reward_array.append(ep_return)
+                ep_return = 0.0
+                obs, _ = env.reset()
 
-        # GAE COMPUTATION
-        rewards = torch.tensor(episode_rewards, dtype=torch.float32)
-        values = torch.stack(episode_values)
-        
-        # Bootstrap: get value of next state (or 0 if done)
-        next_obs_tensor = state_to_tensor(obs)
+        # GAE COMPUTATION (with proper done handling)
         with torch.no_grad():
-            next_value = actor_critic.value(next_obs_tensor)
-        
-        # Compute TD residuals (deltas)
-        deltas = rewards + config.gamma * next_value - values
-        
-        # Compute GAE advantages
-        advantages = torch.zeros_like(deltas)
+            next_value = actor_critic.value(state_to_tensor(obs)).squeeze()
+
+        advantages = torch.zeros(config.rollout_steps)
         gae = 0.0
-        for t in reversed(range(len(deltas))):
-            gae = deltas[t] + config.gamma * config.gae_lambda * gae
+
+        for t in reversed(range(config.rollout_steps)):
+            if t == config.rollout_steps - 1:
+                next_nonterminal = 1.0 - done_buf[t]
+                next_val = next_value
+            else:
+                next_nonterminal = 1.0 - done_buf[t + 1]
+                next_val = value_buf[t + 1]
+
+            delta = rew_buf[t] + config.gamma * next_val * next_nonterminal - value_buf[t]
+            gae = delta + config.gamma * config.gae_lambda * next_nonterminal * gae
             advantages[t] = gae
-        
-        # Compute returns
-        returns = advantages + values
-        
+
+        returns = advantages + value_buf
+
         # Normalize advantages
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-        
-        # TRAINING LOOP
-        for epoch in range(config.epoch_count):
-            ac_optimizer.zero_grad()
-            
-            total_policy_loss = 0
-            total_value_loss = 0
-            
-            for t, (obs, action) in enumerate(zip(episode_states, episode_actions)):
-                logprob_new, entropy = actor_critic.logprob_of_action(state_to_tensor(obs), action)
-                logprob_old = episode_log_probs_old[t].detach()
-                
-                ratio = torch.exp(logprob_new - logprob_old)
-                surrogate = ratio * advantages[t]
-                clipped_surrogate = torch.clamp(ratio, 1 - config.epsilon, 1 + config.epsilon) * advantages[t]
-                policy_loss = -torch.min(surrogate, clipped_surrogate)
-                
-                value_pred = actor_critic.value(state_to_tensor(obs))
-                value_loss = (returns[t] - value_pred) ** 2
-                
-                total_policy_loss += policy_loss
-                total_value_loss += value_loss
 
-            total_loss = (total_policy_loss + total_value_loss).mean()
-            ac_optimizer.zero_grad()
-            total_loss.backward()
-            ac_optimizer.step()
+        # MINIBATCH TRAINING (batched, not per-sample)
+        for epoch in range(config.update_epochs):
+            indices = torch.randperm(config.rollout_steps)
+
+            for start in range(0, config.rollout_steps, config.minibatch_size):
+                mb_indices = indices[start : start + config.minibatch_size]
+
+                # Gather minibatch (all at once)
+                mb_obs = obs_buf[mb_indices]
+                mb_act = act_buf[mb_indices]
+                mb_logprob_old = logprob_buf[mb_indices]
+                mb_advantages = advantages[mb_indices]
+                mb_returns = returns[mb_indices]
+
+                # Forward pass on entire minibatch
+                logprob_new, _ = actor_critic.logprob_of_action(mb_obs, mb_act)
+                values_new = actor_critic.value(mb_obs)
+
+                # Policy loss
+                ratio = torch.exp(logprob_new - mb_logprob_old)
+                surrogate = ratio * mb_advantages
+                clipped_surrogate = torch.clamp(ratio, 1 - config.epsilon, 1 + config.epsilon) * mb_advantages
+                policy_loss = -torch.min(surrogate, clipped_surrogate).mean()
+
+                # Value loss
+                value_loss = ((mb_returns - values_new) ** 2).mean()
+
+                # Total loss and update
+                total_loss = policy_loss + value_loss
+
+                ac_optimizer.zero_grad()
+                total_loss.backward()
+                ac_optimizer.step()
 
     # PLOT TOTAL REWARD
     total_rewards = np.array(total_reward_array)

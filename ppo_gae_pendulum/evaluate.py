@@ -4,7 +4,7 @@ import argparse
 import torch
 import numpy as np
 import gymnasium as gym
-from ppo_gae_pendulum.train_perfect import ActorCritic, Config
+from train import ActorCritic, Config
 
 
 def main():
@@ -32,7 +32,7 @@ def main():
     cfg = Config()
 
     # load network
-    ac = ActorCritic(obs_dim, act_dim, action_high, cfg).to(device)
+    ac = ActorCritic(obs_dim, act_dim).to(device)
     ac.load_state_dict(
         torch.load("models_pendulum/pendulum_ppo_ac.pth", map_location=device)
     )
