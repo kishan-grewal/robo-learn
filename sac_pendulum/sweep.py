@@ -8,6 +8,11 @@ import torch.optim as optim
 
 from train import Actor, TwinCritic, ReplayBuffer, state_to_tensor
 
+HIDDEN_LAYER_NODES_ACTOR = 256
+HIDDEN_LAYER_NODES_CRITIC = 256
+LOG_STD_MIN = -20.0
+LOG_STD_MAX = 2.0
+
 
 class Config:
     # Training
@@ -17,10 +22,11 @@ class Config:
     batch_size: int = 256
     gamma: float = 0.99
     tau: float = 0.005
+    lr: float = 3e-4
     alpha: float = 0.2
 
     # Optuna
-    n_trials: int = 5
+    n_trials: int = 4
     prune_interval: int = 10000
     prune_lookback: int = 10
     final_lookback: int = 20
@@ -30,19 +36,19 @@ class Config:
 
 def train(trial, config=Config()):
     # Optuna suggests hyperparameters
-    lr = trial.suggest_float("lr", 1e-4, 1e-3, log=True)
+    hidden_size = trial.suggest_categorical("hidden_size", [32, 64, 128, 256])
 
     env = gym.make("Pendulum-v1")
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
 
-    actor = Actor(state_dim, action_dim)
-    critic = TwinCritic(state_dim, action_dim)
-    target_critic = TwinCritic(state_dim, action_dim)
+    actor = Actor(state_dim, action_dim, hidden_size, LOG_STD_MIN, LOG_STD_MAX)
+    critic = TwinCritic(state_dim, action_dim, hidden_size)
+    target_critic = TwinCritic(state_dim, action_dim, hidden_size)
     target_critic.load_state_dict(critic.state_dict())
 
-    actor_optimizer = optim.Adam(actor.parameters(), lr=lr)
-    critic_optimizer = optim.Adam(critic.parameters(), lr=lr)
+    actor_optimizer = optim.Adam(actor.parameters(), lr=config.lr)
+    critic_optimizer = optim.Adam(critic.parameters(), lr=config.lr)
 
     buffer = ReplayBuffer(config.buffer_size)
 
