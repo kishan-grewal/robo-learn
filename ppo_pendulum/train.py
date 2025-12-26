@@ -18,11 +18,11 @@ HIDDEN_LAYER_NODES_VALUE = 64
 
 # DATA CLASSES
 class Config:
-    episode_count: int = 500
+    episode_count: int = 1000
     epoch_count: int = 3  # standard for PPO
     gamma: float = 0.99
     epsilon: float = 0.2  # standard for PPO 1 +- eps
-    lr: float = 1e-3
+    lr: float = 3e-4
 
 
 # HELPER FUNCTIONS
@@ -41,6 +41,7 @@ class PolicyNetwork(nn.Module):
             nn.Linear(state_dim, HIDDEN_LAYER_NODES_POLICY),
             nn.ReLU(),
             nn.Linear(HIDDEN_LAYER_NODES_POLICY, HIDDEN_LAYER_NODES_POLICY),
+            nn.ReLU(),
         )
         self.mu_head = nn.Linear(HIDDEN_LAYER_NODES_POLICY, action_dim)
         self.log_std_param = nn.Parameter(torch.zeros(action_dim))
@@ -108,7 +109,7 @@ if __name__ == "__main__":
 
                 # scale action to environments
                 # policy net doesnt know about the environment action cap
-                action = torch.tanh(action_raw) * 2.0
+                action = torch.clamp(action_raw, -2.0, 2.0)  # dont use tanh, that corrupts the action value
                 action_np = action.squeeze().numpy()
 
             next_obs, reward, terminated, truncated, info = env.step([action_np])
@@ -130,10 +131,10 @@ if __name__ == "__main__":
             G = r + config.gamma * G
             returns.insert(0, G)  # adds to it from the back to front
 
+        returns = torch.tensor(returns, dtype=torch.float32)
         # train on collected episode !!!
         for epoch in range(config.epoch_count):
             # tensor creation
-            returns = torch.tensor(returns, dtype=torch.float32)
             baselines = torch.cat(
                 [value_net(state_to_tensor(obs)) for obs in episode_states]
             ).squeeze()
@@ -175,7 +176,9 @@ if __name__ == "__main__":
                 )
                 policy_loss = -torch.min(surrogate, clipped_surrogate)
 
-                total_policy_loss += policy_loss
+                # ADD ENTROPY FOR PENDULUM
+                entropy = dist.entropy().sum(dim=-1)
+                total_policy_loss += policy_loss - 0.01 * entropy  # encourage exploration
                 total_value_loss += (G_t - baseline_t) ** 2
 
             # Single update per epoch
