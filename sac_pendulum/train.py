@@ -23,7 +23,7 @@ LOG_STD_MAX = 2.0
 
 # DATA CLASSES
 class Config:
-    total_timesteps: int = 100000
+    total_timesteps: int = 35000
     buffer_size: int = 100000
     min_buffer_train: int = 1000
     batch_size: int = 256
@@ -243,7 +243,7 @@ if __name__ == "__main__":
 
     # PLOT REWARD
     total_rewards = np.array(total_reward_array)
-    window = 100
+    window = 20
     if len(total_rewards) >= window:
         moving_avg = np.convolve(total_rewards, np.ones(window) / window, mode="valid")
         plt.plot(total_rewards, alpha=0.3, label="Training")
