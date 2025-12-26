@@ -68,23 +68,26 @@ class ReplayBuffer:
 
 
 class Actor(nn.Module):
-    def __init__(self, state_dim, action_dim):
+    def __init__(self, state_dim, action_dim, hidden_actor, log_std_min, log_std_max):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(state_dim, HIDDEN_LAYER_NODES_ACTOR),
+            nn.Linear(state_dim, hidden_actor),
             nn.ReLU(),
-            nn.Linear(HIDDEN_LAYER_NODES_ACTOR, HIDDEN_LAYER_NODES_ACTOR),
+            nn.Linear(hidden_actor, hidden_actor),
             nn.ReLU(),
         )
-        self.mu_head = nn.Linear(HIDDEN_LAYER_NODES_ACTOR, action_dim)
-        self.log_std_head = nn.Linear(HIDDEN_LAYER_NODES_ACTOR, action_dim)
+        self.mu_head = nn.Linear(hidden_actor, action_dim)
+        self.log_std_head = nn.Linear(hidden_actor, action_dim)
         # both mean and std are trained (2 heads)
+
+        self.log_std_min = log_std_min
+        self.log_std_max = log_std_max
 
     def forward(self, state):
         x = self.net(state)
 
         mu = self.mu_head(x)
-        log_std = torch.clamp(self.log_std_head(x), LOG_STD_MIN, LOG_STD_MAX)
+        log_std = torch.clamp(self.log_std_head(x), self.log_std_min, self.log_std_max)
 
         return mu, log_std
 
@@ -108,14 +111,14 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, state_dim, action_dim):
+    def __init__(self, state_dim, action_dim, hidden_critic):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(state_dim + action_dim, HIDDEN_LAYER_NODES_CRITIC),
+            nn.Linear(state_dim + action_dim, hidden_critic),
             nn.ReLU(),
-            nn.Linear(HIDDEN_LAYER_NODES_CRITIC, HIDDEN_LAYER_NODES_CRITIC),
+            nn.Linear(hidden_critic, hidden_critic),
             nn.ReLU(),
-            nn.Linear(HIDDEN_LAYER_NODES_CRITIC, 1),
+            nn.Linear(hidden_critic, 1),
         )
 
     def forward(self, state, action):
@@ -125,10 +128,10 @@ class Critic(nn.Module):
 
 
 class TwinCritic(nn.Module):
-    def __init__(self, state_dim, action_dim):
+    def __init__(self, state_dim, action_dim, hidden_critic):
         super().__init__()
-        self.q1 = Critic(state_dim, action_dim)
-        self.q2 = Critic(state_dim, action_dim)
+        self.q1 = Critic(state_dim, action_dim, hidden_critic)
+        self.q2 = Critic(state_dim, action_dim, hidden_critic)
 
     def forward(self, state, action):
         return self.q1(state, action), self.q2(state, action)
@@ -141,11 +144,11 @@ if __name__ == "__main__":
 
     config = Config()
 
-    actor = Actor(state_dim, action_dim)
-    critic = TwinCritic(state_dim, action_dim)
+    actor = Actor(state_dim, action_dim, HIDDEN_LAYER_NODES_ACTOR, LOG_STD_MIN, LOG_STD_MAX)
+    critic = TwinCritic(state_dim, action_dim, HIDDEN_LAYER_NODES_CRITIC)
 
     # target network like dqn
-    target_critic = TwinCritic(state_dim, action_dim)
+    target_critic = TwinCritic(state_dim, action_dim, HIDDEN_LAYER_NODES_CRITIC)
     target_critic.load_state_dict(critic.state_dict())
 
     actor_optimizer = optim.Adam(actor.parameters(), lr=config.lr)
