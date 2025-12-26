@@ -244,5 +244,3 @@ if __name__ == "__main__":
     os.makedirs("models_cartpole", exist_ok=True)
     torch.save(policy_net.state_dict(), "models_cartpole/cartpole_ppo_policy.pth")
     print("Model saved to models_cartpole/cartpole_ppo_policy.pth")
-    torch.save(value_net.state_dict(), "models_cartpole/cartpole_ppo_value.pth")
-    print("Model saved to models_cartpole/cartpole_ppo_value.pth")
