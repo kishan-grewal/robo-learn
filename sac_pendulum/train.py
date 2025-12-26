@@ -144,7 +144,9 @@ if __name__ == "__main__":
 
     config = Config()
 
-    actor = Actor(state_dim, action_dim, HIDDEN_LAYER_NODES_ACTOR, LOG_STD_MIN, LOG_STD_MAX)
+    actor = Actor(
+        state_dim, action_dim, HIDDEN_LAYER_NODES_ACTOR, LOG_STD_MIN, LOG_STD_MAX
+    )
     critic = TwinCritic(state_dim, action_dim, HIDDEN_LAYER_NODES_CRITIC)
 
     # target network like dqn
