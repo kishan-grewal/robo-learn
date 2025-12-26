@@ -103,13 +103,17 @@ if __name__ == "__main__":
 
                 dist = torch.distributions.Normal(mu, std)
                 action_raw = dist.sample()  # may not be between -2 and 2
+                squashed = torch.tanh(action_raw)
                 log_prob_old = dist.log_prob(action_raw).sum(
                     dim=-1
                 )  # sum over action dims
 
+                # new line
+                log_prob_old -= torch.log(1 - squashed.pow(2) + 1e-6).sum(dim=-1)
+
                 # scale action to environments
                 # policy net doesnt know about the environment action cap
-                action = torch.clamp(action_raw, -2.0, 2.0)  # dont use tanh, that corrupts the action value
+                action = squashed * 2.0
                 action_np = action.squeeze().numpy()
 
             next_obs, reward, terminated, truncated, info = env.step([action_np])
@@ -162,7 +166,12 @@ if __name__ == "__main__":
 
                 mu, std = policy_net(state_to_tensor(obs))
                 dist = torch.distributions.Normal(mu, std)
+
+                squashed = torch.tanh(action_raw)
                 log_prob = dist.log_prob(action_raw).sum(dim=-1)
+
+                # new line
+                log_prob -= torch.log(1 - squashed.pow(2) + 1e-6).sum(dim=-1)
 
                 # surrogate = (π_new / π_old) * advantage
                 # surrogate = (p_new / p_old) * (G - v(s))
@@ -182,6 +191,10 @@ if __name__ == "__main__":
                 total_value_loss += (G_t - baseline_t) ** 2
 
             # Single update per epoch
+            T = len(episode_states)
+            total_policy_loss = total_policy_loss / T
+            total_value_loss  = total_value_loss / T
+
             total_policy_loss.backward()
             policy_optimizer.step()
 
