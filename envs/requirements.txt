@@ -5,3 +5,4 @@ tensorboard
 tqdm
 gymnasium[classic-control]
 argparse
+optuna
