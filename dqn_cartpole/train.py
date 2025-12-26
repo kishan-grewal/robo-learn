@@ -243,6 +243,6 @@ if __name__ == "__main__":
     plt.show()
 
     # save the model
-    os.makedirs("models", exist_ok=True)
-    torch.save(qnet.state_dict(), "models/cartpole_qnet.pth")
-    print("Model saved to models/cartpole_qnet.pth")
+    os.makedirs("models_cartpole", exist_ok=True)
+    torch.save(qnet.state_dict(), "models_cartpole/cartpole_qnet.pth")
+    print("Model saved to models_cartpole/cartpole_qnet.pth")

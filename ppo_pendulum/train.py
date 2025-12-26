@@ -262,8 +262,8 @@ if __name__ == "__main__":
     plt.show()
 
     # save the model
-    os.makedirs("models", exist_ok=True)
-    torch.save(policy_net.state_dict(), "models/pendulum_ppo_policy.pth")
-    print("Model saved to models/pendulum_ppo_policy.pth")
-    torch.save(value_net.state_dict(), "models/pendulum_ppo_value.pth")
-    print("Model saved to models/pendulum_ppo_value.pth")
+    os.makedirs("models_pendulum", exist_ok=True)
+    torch.save(policy_net.state_dict(), "models_pendulum/pendulum_ppo_policy.pth")
+    print("Model saved to models_pendulum/pendulum_ppo_policy.pth")
+    torch.save(value_net.state_dict(), "models_pendulum/pendulum_ppo_value.pth")
+    print("Model saved to models_pendulum/pendulum_ppo_value.pth")

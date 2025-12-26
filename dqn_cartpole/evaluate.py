@@ -25,7 +25,7 @@ def main():
 
     # load network
     qnet = QNetwork(state_dim, action_dim)
-    qnet.load_state_dict(torch.load("models/cartpole_qnet.pth"))
+    qnet.load_state_dict(torch.load("models_cartpole/cartpole_qnet.pth"))
     qnet.eval()
 
     # run episodes

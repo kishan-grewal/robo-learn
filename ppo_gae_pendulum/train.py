@@ -1,4 +1,5 @@
-# ppo_pendulum/ppo_pendulum_gpu.py
+# ppo_gae_pendulum/train.py
+
 # PPO + GAE for Gymnasium Pendulum-v1 (GPU-friendly, stable)
 # - tanh-squashed Gaussian policy with correct log-prob correction
 # - GAE(λ) advantages
@@ -25,7 +26,7 @@ import matplotlib.pyplot as plt
 @dataclass
 class Config:
     seed: int = 1
-    total_timesteps: int = 400_000
+    total_timesteps: int = 200000
     rollout_steps: int = 2048          # collect this many steps per update
     update_epochs: int = 10            # PPO epochs per rollout
     minibatch_size: int = 256          # must divide rollout_steps
@@ -34,7 +35,7 @@ class Config:
     clip_eps: float = 0.2
     lr: float = 3e-4
     vf_coef: float = 0.5
-    ent_coef: float = 0.0             # start with 0; add 0.001 if you want more exploration
+    ent_coef: float = 0.001           # start with 0; add 0.001 if you want more exploration
     max_grad_norm: float = 0.5
     log_std_min: float = -2.0
     log_std_max: float = 1.0
@@ -273,13 +274,13 @@ def main():
     # ----------------------------
     # Plot + save
     # ----------------------------
-    os.makedirs("models", exist_ok=True)
-    torch.save(ac.state_dict(), "models/pendulum_ppo_ac.pth")
-    print("Saved: models/pendulum_ppo_ac.pth")
+    os.makedirs("models_pendulum", exist_ok=True)
+    torch.save(ac.state_dict(), "models_pendulum/pendulum_ppo_ac.pth")
+    print("Saved: models_pendulum/pendulum_ppo_ac.pth")
 
     if len(ep_returns) > 0:
         returns = np.array(ep_returns, dtype=np.float32)
-        window = 20
+        window = 100
         if len(returns) >= window:
             ma = np.convolve(returns, np.ones(window) / window, mode="valid")
             plt.plot(returns, alpha=0.3, label="Episode return")

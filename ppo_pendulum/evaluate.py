@@ -25,7 +25,7 @@ def main():
 
     # load policy network
     policy_net = PolicyNetwork(state_dim, action_dim)
-    policy_net.load_state_dict(torch.load("models/pendulum_ppo_policy.pth"))
+    policy_net.load_state_dict(torch.load("models_pendulum/pendulum_ppo_policy.pth"))
     policy_net.eval()
 
     # run episodes
