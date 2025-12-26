@@ -187,13 +187,15 @@ if __name__ == "__main__":
 
                 # ADD ENTROPY FOR PENDULUM
                 entropy = dist.entropy().sum(dim=-1)
-                total_policy_loss += policy_loss - 0.01 * entropy  # encourage exploration
+                total_policy_loss += (
+                    policy_loss - 0.01 * entropy
+                )  # encourage exploration
                 total_value_loss += (G_t - baseline_t) ** 2
 
             # Single update per epoch
             T = len(episode_states)
             total_policy_loss = total_policy_loss / T
-            total_value_loss  = total_value_loss / T
+            total_value_loss = total_value_loss / T
 
             total_policy_loss.backward()
             policy_optimizer.step()

@@ -14,7 +14,9 @@ def main():
         "--episodes", type=int, default=5, help="Number of episodes to run"
     )
     parser.add_argument(
-        "--no-render", action="store_false", help="Render the environment with gymnasium"
+        "--no-render",
+        action="store_false",
+        help="Render the environment with gymnasium",
     )
     args = parser.parse_args()
 
