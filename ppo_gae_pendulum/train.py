@@ -132,7 +132,9 @@ if __name__ == "__main__":
 
             with torch.no_grad():
                 obs_tensor = state_to_tensor(obs)
-                action_env, logprob, entropy, z = actor_critic.get_action_and_logprob(obs_tensor)
+                action_env, logprob, entropy, z = actor_critic.get_action_and_logprob(
+                    obs_tensor
+                )
                 value = actor_critic.value(obs_tensor)
                 action_np = action_env.squeeze().numpy()
 
@@ -170,7 +172,9 @@ if __name__ == "__main__":
                 next_nonterminal = 1.0 - done_buf[t + 1]
                 next_val = value_buf[t + 1]
 
-            delta = rew_buf[t] + config.gamma * next_val * next_nonterminal - value_buf[t]
+            delta = (
+                rew_buf[t] + config.gamma * next_val * next_nonterminal - value_buf[t]
+            )
             gae = delta + config.gamma * config.gae_lambda * next_nonterminal * gae
             advantages[t] = gae
 
@@ -200,7 +204,10 @@ if __name__ == "__main__":
                 # Policy loss
                 ratio = torch.exp(logprob_new - mb_logprob_old)
                 surrogate = ratio * mb_advantages
-                clipped_surrogate = torch.clamp(ratio, 1 - config.epsilon, 1 + config.epsilon) * mb_advantages
+                clipped_surrogate = (
+                    torch.clamp(ratio, 1 - config.epsilon, 1 + config.epsilon)
+                    * mb_advantages
+                )
                 policy_loss = -torch.min(surrogate, clipped_surrogate).mean()
 
                 # Value loss
