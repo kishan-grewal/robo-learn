@@ -16,6 +16,7 @@ import torch.optim as optim
 
 HIDDEN_LAYER_NODES_ACTOR = 256
 HIDDEN_LAYER_NODES_CRITIC = 256
+HIDDEN_LAYER_NODES_DMODEL = 256
 ACTION_HIGH = 2.0
 LOG_STD_MIN = -20.0
 LOG_STD_MAX = 2.0
@@ -31,6 +32,8 @@ class Config:
     tau: float = 0.005  # soft target update
     lr: float = 3e-4
     alpha: float = 0.2  # entropy constant
+    imaginary_rollout_steps: int = 1  # start with 1, increase later
+    rollouts_per_real: int = 5  # how many imaginary transitions per real step
 
 
 # HELPER FUNCTIONS
@@ -41,6 +44,22 @@ def state_to_tensor(state):
 
 
 # CLASSES
+# dynamics model net for mbpo imaginary data
+class DynamicsModel(nn.Module):
+    def __init__(self, state_dim, action_dim, hidden_dmodel):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(state_dim + action_dim, hidden_dmodel),
+            nn.ReLU(),
+            nn.Linear(hidden_dmodel, state_dim),
+            # obs, action -> new_obs
+        )
+
+    def forward(self, state, action):
+        x = torch.cat([state, action], dim=-1)
+        return self.net(x)
+
+
 class ReplayBuffer:
     def __init__(self, capacity):
         self.buffer = deque(maxlen=capacity)
@@ -148,6 +167,8 @@ if __name__ == "__main__":
         state_dim, action_dim, HIDDEN_LAYER_NODES_ACTOR, LOG_STD_MIN, LOG_STD_MAX
     )
     critic = TwinCritic(state_dim, action_dim, HIDDEN_LAYER_NODES_CRITIC)
+    # for mbpo imaginary data
+    dmodel = DynamicsModel(state_dim, action_dim, HIDDEN_LAYER_NODES_DMODEL)
 
     # target network like dqn
     target_critic = TwinCritic(state_dim, action_dim, HIDDEN_LAYER_NODES_CRITIC)
@@ -155,6 +176,7 @@ if __name__ == "__main__":
 
     actor_optimizer = optim.Adam(actor.parameters(), lr=config.lr)
     critic_optimizer = optim.Adam(critic.parameters(), lr=config.lr)
+    dmodel_optimizer = optim.Adam(dmodel.parameters(), lr=config.lr)
 
     # replay buffer like dqn
     buffer = ReplayBuffer(config.buffer_size)
@@ -192,9 +214,52 @@ if __name__ == "__main__":
             obs, info = env.reset()
 
         if step >= config.min_buffer_train:
+            # MPBO GENERATE DATA FIRST !!!
+
+            # DYNAMICS MODEL UPDATE FOR MBPO
+            d_states, d_actions, _, d_next_states, _ = buffer.sample(config.batch_size)
+            predicted_next_states = dmodel(d_states, d_actions)
+            dmodel_loss = ((predicted_next_states - d_next_states) ** 2).mean()
+
+            dmodel_optimizer.zero_grad()
+            dmodel_loss.backward()
+            dmodel_optimizer.step()
+
             states, actions, rewards, next_states, dones = buffer.sample(
                 config.batch_size
             )
+
+            # DYNAMICS MODEL IMAGINARY ROLLOUTS (DATA GEN)
+            with torch.no_grad():  # nothing to train
+                start_states, _, _, _, _ = buffer.sample(config.rollouts_per_real)
+
+                for _ in range(config.imaginary_rollout_steps):
+                    imag_actions, _ = actor.sample(start_states)
+                    imag_next_states = dmodel(start_states, imag_actions)
+
+                    # we know the reward formula
+                    # else we would train a fourth net to predict reward
+                    cos_th = imag_next_states[:, 0]
+                    sin_th = imag_next_states[:, 1]
+
+                    th_dot = imag_next_states[:, 2]
+                    th = torch.atan2(sin_th, cos_th)  # arctan(y/x)
+
+                    tau = imag_actions.squeeze(-1)
+
+                    imag_rewards = -(th**2 + 0.1 * th_dot**2 + 0.001 * tau**2)
+
+                    for i in range(config.rollouts_per_real):
+                        buffer.store(
+                            start_states[i].numpy(),
+                            imag_actions[i].numpy(),
+                            imag_rewards[i].numpy(),
+                            imag_next_states[i].numpy(),
+                            False,
+                        )
+
+                    # necessary if imaginary rollout steps > 1
+                    start_states = imag_next_states
 
             # CRITIC UPDATE
             with torch.no_grad():
