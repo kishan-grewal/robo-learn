@@ -34,24 +34,52 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+# HALF CHEETAH CONSTANT
+ACTION_HIGH = 1.0
+
+# STANDARD DEVIATIONS
+LOG_STD_MIN_ACTOR = -20.0
+LOG_STD_MAX_ACTOR = 2.0
+LOG_STD_MIN_MODEL = -5
+LOG_STD_MAX_MODEL = 0.5
+
+# NETWORK HIDDEN NODES
 HIDDEN_LAYER_NODES_ACTOR = 256
 HIDDEN_LAYER_NODES_CRITIC = 256
-ACTION_HIGH = 1.0
-LOG_STD_MIN = -20.0
-LOG_STD_MAX = 2.0
+HIDDEN_LAYER_NODES_MODEL = 256
+
+DYNAMICS_LR = 3e-4  # for dynamics, not actor or critic
 
 
 # DATA CLASSES
 class Config:
+    lr: float = 3e-4  # for actor, critic, but not dynamics
+
     total_timesteps: int = 300000
-    buffer_size: int = 100000
-    min_buffer_train: int = 1000
-    batch_size: int = 256
     gamma: float = 0.99
     tau: float = 0.005  # soft target update
-    lr: float = 3e-4
+
+    target_entropy: float = -6.0  # learn alpha
     # -dim(action) is a common heuristic, you have 6 actions
-    target_entropy: float = -6.0
+
+    # TRAINING
+    batch_size: int = 256
+    n_ensemble: int = 5
+    train_real_ratio: float = 0.1
+
+    # BUFFERS
+    # real data
+    real_buffer_train: int = 1000
+    real_buffer_size: int = 100000
+    # model data
+    min_model_train: int = 5000
+    model_buffer_size: int = 100000
+
+    # ROLLOUTS
+    rollout_length_min: int = 1
+    rollout_length_max: int = 15
+    rollout_increase_per_step: int = 10000
+    rollouts_per_step: int = 400
 
 
 # HELPER FUNCTIONS
@@ -61,7 +89,109 @@ def state_to_tensor(state):
     return torch.tensor([state], dtype=torch.float32)
 
 
+def sample_mixed(real_buffer, model_buffer, batch_size, real_ratio):
+    real_size = int(batch_size * real_ratio)
+    model_size = batch_size - real_size
+
+    if len(model_buffer) < model_size:
+        return real_buffer.sample(batch_size)
+
+    r_s, r_a, r_r, r_ns, r_d = real_buffer.sample(real_size)
+    m_s, m_a, m_r, m_ns, m_d = model_buffer.sample(model_size)
+
+    return (
+        torch.cat([r_s, m_s]),
+        torch.cat([r_a, m_a]),
+        torch.cat([r_r, m_r]),
+        torch.cat([r_ns, m_ns]),
+        torch.cat([r_d, m_d]),
+    )
+
+
 # CLASSES
+# mbpo prob d model
+class ProbabilityDynamicsModel(nn.Module):
+    def __init__(self, state_dim, action_dim, hidden_model, log_std_min, log_std_max):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(state_dim + action_dim, hidden_model),
+            nn.ReLU(),
+            nn.Linear(hidden_model, hidden_model),
+            nn.ReLU(),
+        )
+        self.mu_head = nn.Linear(hidden_model, state_dim)
+        # not action dim
+        self.log_std_head = nn.Linear(hidden_model, state_dim)
+        # we are predicting new obs
+
+        self.log_std_min = log_std_min
+        self.log_std_max = log_std_max
+
+    def forward(self, state, action):
+        x = torch.cat([state, action], dim=-1)
+        x = self.net(x)
+        mu = self.mu_head(x)
+        log_std = torch.clamp(self.log_std_head(x), self.log_std_min, self.log_std_max)
+        return mu, log_std
+
+    # With MSE, the model is punished equally for all errors.
+    # With Gaussian NLL, if the model is uncertain (high σ),
+    # it's penalised less for errors but penalised for that uncertainty via the log_std term.
+    # This teaches the model to output high variance where it genuinely can't predict well,
+    # rather than being confidently wrong.
+    def loss(self, state, action, target):
+        mu, log_std = self.forward(state, action)
+        std = log_std.exp()
+        # Gaussian NLL: 0.5 * ((target - mu) / std)^2 + log_std
+        Gaussian_NLL = 0.5 * ((target - mu) / std) ** 2 + log_std
+        return Gaussian_NLL.mean()
+
+    def sample(self, state, action):
+        mu, log_std = self.forward(state, action)
+        std = log_std.exp()
+        return mu + std * torch.randn_like(std)
+
+
+class DynamicsEnsemble:
+    def __init__(
+        self,
+        state_dim,
+        action_dim,
+        hidden_model,
+        log_std_min,
+        log_std_max,
+        n_models,
+        dynamics_lr,
+    ):
+        self.models = [
+            ProbabilityDynamicsModel(
+                state_dim, action_dim, hidden_model, log_std_min, log_std_max
+            )
+            for _ in range(n_models)
+        ]
+        self.optimizers = [
+            optim.Adam(m.parameters(), lr=dynamics_lr) for m in self.models
+        ]
+
+        self.n_models = n_models
+
+    def train_step(self, states, actions, next_states):
+        total_loss = 0
+        for model, optimizer in zip(self.models, self.optimizers):
+            loss = model.loss(states, actions, next_states)
+            total_loss += loss.item()
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        return total_loss / self.n_models
+
+    def sample(self, states, actions):
+        idx = random.randint(0, self.n_models - 1)
+        return self.models[idx].sample(states, actions)
+
+
 class ReplayBuffer:
     def __init__(self, capacity):
         self.buffer = deque(maxlen=capacity)
@@ -166,7 +296,11 @@ if __name__ == "__main__":
     config = Config()
 
     actor = Actor(
-        state_dim, action_dim, HIDDEN_LAYER_NODES_ACTOR, LOG_STD_MIN, LOG_STD_MAX
+        state_dim,
+        action_dim,
+        HIDDEN_LAYER_NODES_ACTOR,
+        LOG_STD_MIN_ACTOR,
+        LOG_STD_MAX_ACTOR,
     )
     critic = TwinCritic(state_dim, action_dim, HIDDEN_LAYER_NODES_CRITIC)
 
@@ -182,7 +316,7 @@ if __name__ == "__main__":
     alpha_optimizer = optim.Adam([log_alpha], lr=config.lr)
 
     # replay buffer like dqn
-    buffer = ReplayBuffer(config.buffer_size)
+    buffer = ReplayBuffer(config.real_buffer_size)
 
     # logging
     total_reward_array = []
@@ -192,7 +326,7 @@ if __name__ == "__main__":
     # timestep loop
     for step in trange(config.total_timesteps):
         # before the buffer is filled we do random
-        if step < config.min_buffer_train:
+        if step < config.real_buffer_train:
             action = env.action_space.sample()
         else:
             with torch.no_grad():
