@@ -415,7 +415,7 @@ if __name__ == "__main__":
             )
 
             # IMPORTANT: clear model buffer before refilling
-            model_buffer.buffer.clear()
+            # model_buffer.buffer.clear()
 
             generate_model_rollouts(
                 dynamics_ensemble,
