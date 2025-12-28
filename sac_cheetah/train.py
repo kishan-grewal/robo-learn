@@ -50,7 +50,8 @@ class Config:
     gamma: float = 0.99
     tau: float = 0.005  # soft target update
     lr: float = 3e-4
-    alpha: float = 0.2  # entropy constant
+    # -dim(action) is a common heuristic, you have 6 actions
+    target_entropy: float = -6.0
 
 
 # HELPER FUNCTIONS
@@ -173,8 +174,12 @@ if __name__ == "__main__":
     target_critic = TwinCritic(state_dim, action_dim, HIDDEN_LAYER_NODES_CRITIC)
     target_critic.load_state_dict(critic.state_dict())
 
+    # learnable log_alpha (log so alpha stays positive)
+    log_alpha = torch.zeros(1, requires_grad=True)
+
     actor_optimizer = optim.Adam(actor.parameters(), lr=config.lr)
     critic_optimizer = optim.Adam(critic.parameters(), lr=config.lr)
+    alpha_optimizer = optim.Adam([log_alpha], lr=config.lr)
 
     # replay buffer like dqn
     buffer = ReplayBuffer(config.buffer_size)
@@ -215,6 +220,10 @@ if __name__ == "__main__":
             states, actions, rewards, next_states, dones = buffer.sample(
                 config.batch_size
             )
+            # alpha for training
+            alpha = log_alpha.exp().detach()
+            if step % 10000 == 0:
+                print(f"Step {step}, alpha: {log_alpha.exp().item():.4f}")
 
             # CRITIC UPDATE
             with torch.no_grad():
@@ -228,7 +237,7 @@ if __name__ == "__main__":
                 target = (
                     rewards
                     + config.gamma
-                    * (q_target - config.alpha * next_log_probs)
+                    * (q_target - alpha * next_log_probs)
                     * (~dones).float()
                 )
 
@@ -251,11 +260,21 @@ if __name__ == "__main__":
 
             # Actor wants to maximize Q and maximize entropy (minimize log_prob)
             # Loss = α * log_prob - Q  (minimize this = maximize Q - α * log_prob)
-            actor_loss = (config.alpha * log_probs - q_).mean()
+            actor_loss = (alpha * log_probs - q_).mean()
 
             actor_optimizer.zero_grad()
             actor_loss.backward()
             actor_optimizer.step()
+
+            # ALPHA UPDATE
+            # L = -a(logp + logaT)
+            alpha_loss = -(
+                log_alpha.exp() * (log_probs.detach() + config.target_entropy)
+            ).mean()
+
+            alpha_optimizer.zero_grad()
+            alpha_loss.backward()
+            alpha_optimizer.step()
 
             # SOFT TARGET UPDATE EACH STEP
             with torch.no_grad():
