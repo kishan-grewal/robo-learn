@@ -55,7 +55,7 @@ DYNAMICS_LR = 3e-4  # for dynamics, not actor or critic
 class Config:
     lr: float = 3e-4  # for actor, critic, but not dynamics
 
-    total_timesteps: int = 150_000
+    total_timesteps: int = 300_000
     gamma: float = 0.99
     tau: float = 0.005  # soft target update
 
