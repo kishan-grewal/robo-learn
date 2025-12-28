@@ -55,7 +55,7 @@ DYNAMICS_LR = 3e-4  # for dynamics, not actor or critic
 class Config:
     lr: float = 3e-4  # for actor, critic, but not dynamics
 
-    total_timesteps: int = 300000
+    total_timesteps: int = 100000
     gamma: float = 0.99
     tau: float = 0.005  # soft target update
 
@@ -72,7 +72,7 @@ class Config:
     real_buffer_train: int = 1000
     real_buffer_size: int = 100000
     # model data
-    min_model_train: int = 5000
+    model_buffer_train: int = 5000
     model_buffer_size: int = 100000
 
     # ROLLOUTS
@@ -155,13 +155,13 @@ class ProbabilityDynamicsModel(nn.Module):
 class DynamicsEnsemble:
     def __init__(
         self,
+        n_models,
+        dynamics_lr,
         state_dim,
         action_dim,
         hidden_model,
         log_std_min,
         log_std_max,
-        n_models,
-        dynamics_lr,
     ):
         self.models = [
             ProbabilityDynamicsModel(
@@ -311,6 +311,17 @@ if __name__ == "__main__":
     # learnable log_alpha (log so alpha stays positive)
     log_alpha = torch.zeros(1, requires_grad=True)
 
+    # ensemble for mbpo
+    dynamics_ensemble = DynamicsEnsemble(
+        config.n_ensemble,
+        DYNAMICS_LR,
+        state_dim,
+        action_dim,
+        HIDDEN_LAYER_NODES_MODEL,
+        LOG_STD_MIN_MODEL,
+        LOG_STD_MAX_MODEL,
+    )
+
     actor_optimizer = optim.Adam(actor.parameters(), lr=config.lr)
     critic_optimizer = optim.Adam(critic.parameters(), lr=config.lr)
     alpha_optimizer = optim.Adam([log_alpha], lr=config.lr)
@@ -350,14 +361,20 @@ if __name__ == "__main__":
             ep_return = 0.0
             obs, info = env.reset()
 
-        if step >= config.min_buffer_train:
+        if step >= config.real_buffer_train:
             states, actions, rewards, next_states, dones = buffer.sample(
                 config.batch_size
             )
+
+            # train ensemble
+            model_loss = dynamics_ensemble.train_step(states, actions, next_states)
+            if step % 5000 == 0:
+                print(f"Step {step}, dynamics loss: {model_loss:.4f}")
+
             # alpha for training
             alpha = log_alpha.exp().detach()
-            if step % 10000 == 0:
-                print(f"Step {step}, alpha: {log_alpha.exp().item():.4f}")
+            # if step % 10000 == 0:
+            #     print(f"Step {step}, alpha: {log_alpha.exp().item():.4f}")
 
             # CRITIC UPDATE
             with torch.no_grad():

@@ -6,8 +6,8 @@ import gymnasium as gym
 from train import Actor, state_to_tensor
 from train import (
     HIDDEN_LAYER_NODES_ACTOR,
-    LOG_STD_MIN,
-    LOG_STD_MAX,
+    LOG_STD_MIN_ACTOR,
+    LOG_STD_MAX_ACTOR,
 )
 
 
@@ -32,7 +32,11 @@ def main():
 
     # load actor network
     actor = Actor(
-        state_dim, action_dim, HIDDEN_LAYER_NODES_ACTOR, LOG_STD_MIN, LOG_STD_MAX
+        state_dim,
+        action_dim,
+        HIDDEN_LAYER_NODES_ACTOR,
+        LOG_STD_MIN_ACTOR,
+        LOG_STD_MAX_ACTOR,
     )
     actor.load_state_dict(torch.load("models_cheetah/cheetah_mbpo_actor.pth"))
     actor.eval()
