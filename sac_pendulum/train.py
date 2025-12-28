@@ -268,5 +268,4 @@ if __name__ == "__main__":
     # SAVE
     os.makedirs("models_pendulum", exist_ok=True)
     torch.save(actor.state_dict(), "models_pendulum/pendulum_sac_actor.pth")
-    torch.save(critic.state_dict(), "models_pendulum/pendulum_sac_critic.pth")
     print("Models saved")

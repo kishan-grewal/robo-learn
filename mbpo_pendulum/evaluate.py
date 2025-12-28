@@ -4,11 +4,16 @@ import argparse
 import torch
 import gymnasium as gym
 from train import Actor, state_to_tensor
+from train import (
+    HIDDEN_LAYER_NODES_ACTOR,
+    LOG_STD_MIN,
+    LOG_STD_MAX,
+)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Evaluate trained Pendulum-v1 MBPO agent"
+        description="Evaluate trained Pendulum-v1 MBPO SAC agent"
     )
     parser.add_argument(
         "--episodes", type=int, default=5, help="Number of episodes to run"
@@ -26,7 +31,9 @@ def main():
     action_dim = env.action_space.shape[0]
 
     # load actor network
-    actor = Actor(state_dim, action_dim)
+    actor = Actor(
+        state_dim, action_dim, HIDDEN_LAYER_NODES_ACTOR, LOG_STD_MIN, LOG_STD_MAX
+    )
     actor.load_state_dict(torch.load("models_pendulum/pendulum_mbpo_actor.pth"))
     actor.eval()
 
