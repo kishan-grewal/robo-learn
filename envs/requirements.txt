@@ -4,5 +4,6 @@ matplotlib
 tensorboard
 tqdm
 gymnasium[classic-control]
+gymnasium[mujoco]
 argparse
 optuna
