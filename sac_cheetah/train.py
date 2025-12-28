@@ -43,7 +43,7 @@ LOG_STD_MAX = 2.0
 
 # DATA CLASSES
 class Config:
-    total_timesteps: int = 100000
+    total_timesteps: int = 300000
     buffer_size: int = 100000
     min_buffer_train: int = 1000
     batch_size: int = 256
