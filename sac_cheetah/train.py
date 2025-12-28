@@ -16,7 +16,7 @@
 # obs: z, p, th_bar | xdot, zdot, p_dot, th_bar_dot
 # (x excluded so policy generalises to joints not exact position)
 # action: tau_bar
-# reward: r = xdot - 0.1 * |action|**2
+# reward: r = xdot - 0.1 * ||action||^2
 # no termination, cheetah can flip/fail silently
 # truncates at 1000 steps
 

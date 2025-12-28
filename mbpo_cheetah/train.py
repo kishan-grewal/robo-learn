@@ -16,7 +16,7 @@
 # obs: z, p, th_bar | xdot, zdot, p_dot, th_bar_dot
 # (x excluded so policy generalises to joints not exact position)
 # action: tau_bar
-# reward: r = xdot - 0.1 * |action|**2
+# reward: r = xdot - 0.1 * ||action||^2
 # no termination, cheetah can flip/fail silently
 # truncates at 1000 steps
 
@@ -55,7 +55,7 @@ DYNAMICS_LR = 3e-4  # for dynamics, not actor or critic
 class Config:
     lr: float = 3e-4  # for actor, critic, but not dynamics
 
-    total_timesteps: int = 100000
+    total_timesteps: int = 100_000
     gamma: float = 0.99
     tau: float = 0.005  # soft target update
 
@@ -69,17 +69,19 @@ class Config:
 
     # BUFFERS
     # real data
-    real_buffer_train: int = 1000
-    real_buffer_size: int = 100000
+    real_buffer_train: int = 1_000
+    real_buffer_size: int = 100_000
     # model data
-    model_buffer_train: int = 5000
-    model_buffer_size: int = 100000
+    model_buffer_train: int = 5_000
+    model_buffer_size: int = 50_000
 
     # ROLLOUTS
-    rollout_length_min: int = 1
-    rollout_length_max: int = 15
-    rollout_increase_per_step: int = 10000
+    # number of rollouts
     rollouts_per_step: int = 400
+    # rollout length
+    rollout_length_min: int = 1
+    rollout_length_max: int = 5
+    rollout_increase_freq: int = 20_000
 
 
 # HELPER FUNCTIONS
@@ -89,6 +91,7 @@ def state_to_tensor(state):
     return torch.tensor([state], dtype=torch.float32)
 
 
+# mbpo functions
 def sample_mixed(real_buffer, model_buffer, batch_size, real_ratio):
     real_size = int(batch_size * real_ratio)
     model_size = batch_size - real_size
@@ -106,6 +109,34 @@ def sample_mixed(real_buffer, model_buffer, batch_size, real_ratio):
         torch.cat([r_ns, m_ns]),
         torch.cat([r_d, m_d]),
     )
+
+
+def generate_model_rollouts(
+    dynamics_ensemble, actor, real_buffer, model_buffer, rollout_length, num_rollouts
+):
+    start_states, _, _, _, _ = real_buffer.sample(num_rollouts)
+
+    with torch.no_grad():
+        states = start_states
+        for _ in range(rollout_length):
+            actions, _ = actor.sample(states)
+            next_states = dynamics_ensemble.sample(states, actions)
+
+            # HalfCheetah reward: xdot - 0.1 * ||action||^2
+            xdot = next_states[:, 8]
+            control_cost = 0.1 * (actions**2).sum(dim=-1)
+            rewards = xdot - control_cost
+
+            for i in range(num_rollouts):
+                model_buffer.store(
+                    states[i].numpy(),
+                    actions[i].numpy(),
+                    rewards[i].item(),
+                    next_states[i].numpy(),
+                    False,
+                )
+
+            states = next_states
 
 
 # CLASSES
@@ -327,7 +358,10 @@ if __name__ == "__main__":
     alpha_optimizer = optim.Adam([log_alpha], lr=config.lr)
 
     # replay buffer like dqn
-    buffer = ReplayBuffer(config.real_buffer_size)
+    real_buffer = ReplayBuffer(config.real_buffer_size)
+
+    # model buffer for mbpo
+    model_buffer = ReplayBuffer(config.model_buffer_size)
 
     # logging
     total_reward_array = []
@@ -351,7 +385,7 @@ if __name__ == "__main__":
         done = terminated or truncated
 
         # store transition
-        buffer.store(obs, action, reward, next_obs, done)
+        real_buffer.store(obs, action, reward, next_obs, done)
 
         ep_return += reward
         obs = next_obs
@@ -361,15 +395,39 @@ if __name__ == "__main__":
             ep_return = 0.0
             obs, info = env.reset()
 
-        if step >= config.real_buffer_train:
-            states, actions, rewards, next_states, dones = buffer.sample(
-                config.batch_size
+        # ------------------ MBPO STUFF
+        if step >= config.model_buffer_train:
+            state, action, _, new_state, _ = real_buffer.sample(config.batch_size)
+            dynamics_ensemble.train_step(state, action, new_state)
+
+        if step >= config.model_buffer_train:
+            # rollout length schedule
+            rollout_len = min(
+                config.rollout_length_max,
+                config.rollout_length_min + step // config.rollout_increase_freq,
             )
 
-            # train ensemble
-            model_loss = dynamics_ensemble.train_step(states, actions, next_states)
-            if step % 5000 == 0:
-                print(f"Step {step}, dynamics loss: {model_loss:.4f}")
+            # IMPORTANT: clear model buffer before refilling
+            model_buffer.buffer.clear()
+
+            generate_model_rollouts(
+                dynamics_ensemble,
+                actor,
+                real_buffer,
+                model_buffer,
+                rollout_len,
+                config.rollouts_per_step,
+            )
+        # -----------------------------
+
+        if step >= config.real_buffer_train:
+            states, actions, rewards, next_states, dones = sample_mixed(
+                real_buffer, model_buffer, config.batch_size, config.train_real_ratio
+            )
+
+            # model_loss = dynamics_ensemble.train_step(states, actions, next_states)
+            # if step % 5000 == 0:
+            #     print(f"Step {step}, dynamics loss: {model_loss:.4f}")
 
             # alpha for training
             alpha = log_alpha.exp().detach()
