@@ -24,7 +24,7 @@ LOG_STD_MAX = 2.0
 
 # DATA CLASSES
 class Config:
-    total_timesteps: int = 35000
+    total_timesteps: int = 15000  # 35000
     buffer_size: int = 100000
     min_buffer_train: int = 1000
     batch_size: int = 256
@@ -34,6 +34,7 @@ class Config:
     alpha: float = 0.2  # entropy constant
     imaginary_rollout_steps: int = 1  # start with 1, increase later
     rollouts_per_real: int = 5  # how many imaginary transitions per real step
+    min_dmodel_train: int = 5000  # try to fix bad training
 
 
 # HELPER FUNCTIONS
@@ -230,36 +231,37 @@ if __name__ == "__main__":
             )
 
             # DYNAMICS MODEL IMAGINARY ROLLOUTS (DATA GEN)
-            with torch.no_grad():  # nothing to train
-                start_states, _, _, _, _ = buffer.sample(config.rollouts_per_real)
+            if step >= config.min_dmodel_train:
+                with torch.no_grad():  # nothing to train
+                    start_states, _, _, _, _ = buffer.sample(config.rollouts_per_real)
 
-                for _ in range(config.imaginary_rollout_steps):
-                    imag_actions, _ = actor.sample(start_states)
-                    imag_next_states = dmodel(start_states, imag_actions)
+                    for _ in range(config.imaginary_rollout_steps):
+                        imag_actions, _ = actor.sample(start_states)
+                        imag_next_states = dmodel(start_states, imag_actions)
 
-                    # we know the reward formula
-                    # else we would train a fourth net to predict reward
-                    cos_th = imag_next_states[:, 0]
-                    sin_th = imag_next_states[:, 1]
+                        # we know the reward formula
+                        # else we would train a fourth net to predict reward
+                        cos_th = imag_next_states[:, 0]
+                        sin_th = imag_next_states[:, 1]
 
-                    th_dot = imag_next_states[:, 2]
-                    th = torch.atan2(sin_th, cos_th)  # arctan(y/x)
+                        th_dot = imag_next_states[:, 2]
+                        th = torch.atan2(sin_th, cos_th)  # arctan(y/x)
 
-                    tau = imag_actions.squeeze(-1)
+                        tau = imag_actions.squeeze(-1)
 
-                    imag_rewards = -(th**2 + 0.1 * th_dot**2 + 0.001 * tau**2)
+                        imag_rewards = -(th**2 + 0.1 * th_dot**2 + 0.001 * tau**2)
 
-                    for i in range(config.rollouts_per_real):
-                        buffer.store(
-                            start_states[i].numpy(),
-                            imag_actions[i].numpy(),
-                            imag_rewards[i].numpy(),
-                            imag_next_states[i].numpy(),
-                            False,
-                        )
+                        for i in range(config.rollouts_per_real):
+                            buffer.store(
+                                start_states[i].numpy(),
+                                imag_actions[i].numpy(),
+                                imag_rewards[i].item(),
+                                imag_next_states[i].numpy(),
+                                False,
+                            )
 
-                    # necessary if imaginary rollout steps > 1
-                    start_states = imag_next_states
+                        # necessary if imaginary rollout steps > 1
+                        start_states = imag_next_states
 
             # CRITIC UPDATE
             with torch.no_grad():
