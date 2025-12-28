@@ -55,7 +55,7 @@ DYNAMICS_LR = 3e-4  # for dynamics, not actor or critic
 class Config:
     lr: float = 3e-4  # for actor, critic, but not dynamics
 
-    total_timesteps: int = 100_000
+    total_timesteps: int = 150_000
     gamma: float = 0.99
     tau: float = 0.005  # soft target update
 
@@ -73,15 +73,17 @@ class Config:
     real_buffer_size: int = 100_000
     # model data
     model_buffer_train: int = 5_000
-    model_buffer_size: int = 50_000
+    model_buffer_size: int = 100_000
 
     # ROLLOUTS
+    # generate frequency
+    rollout_generate_freq: int = 250
     # number of rollouts
     rollouts_per_step: int = 400
     # rollout length
     rollout_length_min: int = 1
     rollout_length_max: int = 5
-    rollout_increase_freq: int = 20_000
+    rollout_increase_freq: int = 25_000
 
 
 # HELPER FUNCTIONS
@@ -396,11 +398,16 @@ if __name__ == "__main__":
             obs, info = env.reset()
 
         # ------------------ MBPO STUFF
+        # train ensemble
         if step >= config.model_buffer_train:
-            state, action, _, new_state, _ = real_buffer.sample(config.batch_size)
-            dynamics_ensemble.train_step(state, action, new_state)
+            m_state, m_action, _, m_new_state, _ = real_buffer.sample(config.batch_size)
+            dynamics_ensemble.train_step(m_state, m_action, m_new_state)
 
-        if step >= config.model_buffer_train:
+        # generate rollouts
+        if (
+            step >= config.model_buffer_train
+            and step % config.rollout_generate_freq == 0
+        ):
             # rollout length schedule
             rollout_len = min(
                 config.rollout_length_max,
@@ -420,6 +427,7 @@ if __name__ == "__main__":
             )
         # -----------------------------
 
+        # update critic, actor, alpha, critic soft target
         if step >= config.real_buffer_train:
             states, actions, rewards, next_states, dones = sample_mixed(
                 real_buffer, model_buffer, config.batch_size, config.train_real_ratio
