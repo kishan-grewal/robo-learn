@@ -46,10 +46,11 @@ class Config:
     vf_coef: float = 0.5
 
 
-def state_to_tensor(state, device):
-    if isinstance(state, np.ndarray):
-        return torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
-    return torch.tensor([state], dtype=torch.float32, device=device)
+# DONT NEED anymore, we always have batches due to env dimension
+# def state_to_tensor(state, device):
+#     if isinstance(state, np.ndarray):
+#         return torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+#     return torch.tensor([state], dtype=torch.float32, device=device)
 
 
 class ActorCritic(nn.Module):
@@ -121,10 +122,7 @@ class ActorCritic(nn.Module):
         # adjust for tanh transformation of probabilities
         log_prob -= torch.log(1 - a.pow(2) + 1e-6).sum(dim=-1)
 
-        # entropy prop to log(variance) + c
-        entropy = dist.entropy().sum(dim=-1)
-
-        return action_env, log_prob, entropy, z
+        return action_env, log_prob
 
     def logprob_of_action(self, obs, action_env):
         """
@@ -196,24 +194,30 @@ def compute_gae(rewards, values, dones, next_value, gamma, gae_lambda):
     Why (1 - done)? If the episode ended, there's no future value to bootstrap from.
     The next state's value should not contribute to the current advantage.
     """
-    rollout_steps = len(rewards)
-    advantages = torch.zeros(rollout_steps, device=rewards.device)
+    # rewards: (rollouts_per_env, num_envs)
+    # values: (rollouts_per_env, num_envs)
+    # dones: (rollouts_per_env, num_envs)
+    # next_value: (num_envs,)
 
-    gae = 0.0
-    for t in reversed(range(rollout_steps)):
-        if t == rollout_steps - 1:
+    rollouts_per_env = rewards.shape[0]  # dim 0 and 1
+    num_envs = rewards.shape[1]
+
+    advantages = torch.zeros_like(rewards)
+
+    gae = torch.zeros(num_envs, device=rewards.device)  # isolated gae per environment
+
+    for t in reversed(range(rollouts_per_env)):
+        if t == rollouts_per_env - 1:
             next_v = next_value
         else:
             next_v = values[t + 1]
 
-        # TD error (surprise)
+        # these all broadcast correctly now, same formula but vectorised
+        # surprise per env
         delta = rewards[t] + gamma * next_v * (1 - dones[t]) - values[t]
-        # dt = Rt - Vt
-        # but one step expanded because we dont know Rt
-
-        # GAE recursion (propagate surprise backwards)
+        # weighted surprise per env
         gae = delta + gamma * gae_lambda * (1 - dones[t]) * gae
-        # gt = dt + yl * gt+1
+        # store, go recursively
         advantages[t] = gae
 
     return advantages
@@ -290,65 +294,68 @@ if __name__ == "__main__":
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
 
+    # sync vector env for 16 parallel environments
     env = gym.vector.SyncVectorEnv(
-        [gym.vector.make("HalfCheetah-v5") for _ in range(config.num_envs)]
+        [gym.make("HalfCheetah-v5") for _ in range(config.num_envs)]
     )
+    # we place [t, env, ..] not [env, t, ..] because
+    # then we can index by time easier, which we index by more than env
+
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
 
     actor_critic = ActorCritic(state_dim, action_dim, config).to(device=device)
     ac_optimizer = optim.Adam(actor_critic.parameters(), lr=config.lr)
 
-    obs_buff = torch.zeros((config.rollout_steps, state_dim), device=device)
-    action_buff = torch.zeros((config.rollout_steps, action_dim), device=device)
-    reward_buff = torch.zeros(config.rollout_steps, device=device)
-    done_buff = torch.zeros(config.rollout_steps, device=device)
-    logprob_buff = torch.zeros(config.rollout_steps, device=device)
-    value_buff = torch.zeros(config.rollout_steps, device=device)
+    # predefine s, a, r, done, log_pi, v tensors for speed
+    obs_buff = torch.zeros(
+        (config.rollouts_per_env, config.num_envs, state_dim), device=device
+    )
+    action_buff = torch.zeros(
+        (config.rollouts_per_env, config.num_envs, action_dim), device=device
+    )
+    reward_buff = torch.zeros(config.rollouts_per_env, config.num_envs, device=device)
+    done_buff = torch.zeros(config.rollouts_per_env, config.num_envs, device=device)
+    logprob_buff = torch.zeros(config.rollouts_per_env, config.num_envs, device=device)
+    value_buff = torch.zeros(config.rollouts_per_env, config.num_envs, device=device)
 
     total_reward_array = []
     global_step = 0
     num_updates = config.total_timesteps // config.rollout_steps
 
     obs, _ = env.reset()
-    ep_return = 0.0
 
     for update in trange(num_updates):
-        # ROLLOUT COLLECTION (this part is given - it's just stepping the env)
-        for step in range(config.rollout_steps):
+        # ROLLOUT COLLECTION (this part is given - it's just stepping the envs)
+        for step in range(config.rollouts_per_env):
             global_step += 1
 
             with torch.no_grad():
-                obs_tensor = state_to_tensor(obs, device=device)
-                action_env, logprob, entropy, z = actor_critic.get_action_and_logprob(
-                    obs_tensor
-                )
+                obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)
+                action_env, logprob = actor_critic.get_action_and_logprob(obs_tensor)
                 value = actor_critic.value(obs_tensor)
                 action_np = action_env.squeeze().cpu().numpy()
 
             next_obs, reward, terminated, truncated, info = env.step(action_np)
-            done = terminated or truncated
+            # new done handling for many envs
+            done = np.logical_or(terminated, truncated)
 
-            obs_buff[step] = obs_tensor.squeeze(0)
-            action_buff[step] = action_env.squeeze(0)
-            reward_buff[step] = reward
-            done_buff[step] = 1.0 if done else 0.0
-            logprob_buff[step] = logprob.squeeze(0)
-            value_buff[step] = value.squeeze(0)
+            obs_buff[step] = obs_tensor
+            action_buff[step] = action_env
+            reward_buff[step] = torch.tensor(reward, dtype=torch.float32, device=device)
+            done_buff[step] = torch.tensor(done, dtype=torch.float32, device=device)
+            logprob_buff[step] = logprob
+            value_buff[step] = value
 
-            ep_return += reward
             obs = next_obs
-
-            if done:
-                total_reward_array.append(ep_return)
-                ep_return = 0.0
-                obs, _ = env.reset()
+            if "final_info" in info:
+                for env_info in info["final_info"]:
+                    if env_info is not None and "episode" in env_info:
+                        total_reward_array.append(env_info["episode"]["r"])
 
         # GAE COMPUTATION
         with torch.no_grad():
-            next_value = actor_critic.value(
-                state_to_tensor(obs, device=device)
-            ).squeeze()
+            next_value = actor_critic.value(obs)
 
         advantages = compute_gae(
             reward_buff,
@@ -361,26 +368,36 @@ if __name__ == "__main__":
         returns = advantages + value_buff
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        # MINIBATCH TRAINING
+        # flatten here before taking random minibatches
+        obs_flat = obs_buff.reshape(-1, state_dim)
+        action_flat = action_buff.reshape(-1, action_dim)
+        logprob_flat = logprob_buff.reshape(-1)
+        advantages_flat = advantages.reshape(-1)
+        returns_flat = returns.reshape(-1)
+
+        # calculate rollout_steps for mini batch training
+        rollout_steps = config.num_envs * config.rollouts_per_env
+
+        # MINIBATCH TRAINING: NOW FLATTENED DUE TO MANY PARALLEL ENVS
         for epoch in range(config.update_epochs):
-            indices = torch.randperm(config.rollout_steps)
+            indices = torch.randperm(rollout_steps)
 
-            for start in range(0, config.rollout_steps, config.minibatch_size):
-                mb_indices = indices[start : start + config.minibatch_size]
+            for start in range(0, rollout_steps, config.minibatch_size):
+                indices_mb = indices[start : start + config.minibatch_size]
 
-                mb_obs = obs_buff[mb_indices]
-                mb_act = action_buff[mb_indices]
-                mb_logprob_old = logprob_buff[mb_indices]
-                mb_advantages = advantages[mb_indices]
-                mb_returns = returns[mb_indices]
+                obs_mb = obs_flat[indices_mb]
+                action_mb = action_flat[indices_mb]
+                logprob_old_mb = logprob_flat[indices_mb]
+                advantages_mb = advantages_flat[indices_mb]
+                returns_mb = returns_flat[indices_mb]
 
-                logprob_new, entropy = actor_critic.logprob_of_action(mb_obs, mb_act)
-                values_new = actor_critic.value(mb_obs)
+                logprob_new, entropy = actor_critic.logprob_of_action(obs_mb, action_mb)
+                values_new = actor_critic.value(obs_mb)
 
                 policy_loss = compute_policy_loss(
-                    logprob_new, mb_logprob_old, mb_advantages, config.epsilon
+                    logprob_new, logprob_old_mb, advantages_mb, config.epsilon
                 )
-                value_loss = ((mb_returns - values_new) ** 2).mean()
+                value_loss = ((returns_mb - values_new) ** 2).mean()
                 entropy_loss = compute_entropy_loss(entropy)
 
                 total_loss = (
