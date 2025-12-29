@@ -1,4 +1,4 @@
-# ppo_vec_cheetah/train_unvectorised.py
+# ppo_vec_cheetah/train_vectorised.py
 
 import random
 import numpy as np
@@ -17,9 +17,11 @@ class Config:
     seed: int = 19
     action_high: float = 1.0
     total_timesteps: int = 200_000
-    rollout_steps: int = 2_048  # 200_000 steps but we stop to train every 2_048
-    minibatch_size: int = 256  # we train on those 2_048 in 256 chunks
+    # rollout_steps: int = 2_048  # 200_000 steps but we stop to train every 2_048
+    # rollout_steps = num_envs * rollouts_per_env
     num_envs: int = 16  # number of parallel environments
+    rollouts_per_env: int = 128  # number of rollouts per parallel env
+    minibatch_size: int = 256  # we train on those 2_048 in 256 chunks
 
     # training
     update_epochs: int = 10  # we train multiple times on each minibatch
@@ -288,7 +290,9 @@ if __name__ == "__main__":
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
 
-    env = gym.make("HalfCheetah-v5")
+    env = gym.vector.SyncVectorEnv(
+        [gym.vector.make("HalfCheetah-v5") for _ in range(config.num_envs)]
+    )
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
 
@@ -409,10 +413,10 @@ if __name__ == "__main__":
     )
     plt.xlabel("Episode")
     plt.ylabel("Total Reward")
-    plt.title("Unvectorised PPO on HalfCheetah-v5")
+    plt.title("Vectorised PPO on HalfCheetah-v5")
     plt.legend()
     plt.show()
 
     os.makedirs("models_cheetah", exist_ok=True)
-    torch.save(actor_critic.state_dict(), "models_cheetah/cheetah_ppo_unvec_ac.pth")
-    print("Model saved to models_cheetah/cheetah_ppo_unvec_ac.pth")
+    torch.save(actor_critic.state_dict(), "models_cheetah/cheetah_ppo_vec_ac.pth")
+    print("Model saved to models_cheetah/cheetah_ppo_vec_ac.pth")
