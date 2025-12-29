@@ -83,8 +83,8 @@ class ActorCritic(nn.Module):
         logprob = dist.log_prob(z).sum(dim=-1)
         logprob -= torch.log(1 - a.pow(2) + 1e-6).sum(dim=-1)
 
-        entropy = dist.entropy().sum(dim=-1)
-        return action_env, logprob, entropy, z
+        # use action and store log prob old in rollout
+        return action_env, logprob
 
     def logprob_of_action(self, obs, action_env):
         dist = self._get_dist(obs)
@@ -95,6 +95,7 @@ class ActorCritic(nn.Module):
         logprob = dist.log_prob(z).sum(dim=-1)
         logprob -= torch.log(1 - a.pow(2) + 1e-6).sum(dim=-1)
         entropy = dist.entropy().sum(dim=-1)
+        # use log prob new and use entropy in training (also use logprob old)
         return logprob, entropy
 
 
@@ -139,9 +140,7 @@ if __name__ == "__main__":
 
             with torch.no_grad():
                 obs_tensor = state_to_tensor(obs, device=device)
-                action_env, logprob, entropy, z = actor_critic.get_action_and_logprob(
-                    obs_tensor
-                )
+                action_env, logprob = actor_critic.get_action_and_logprob(obs_tensor)
                 value = actor_critic.value(obs_tensor)
                 action_np = action_env.squeeze().cpu().numpy()
 
@@ -166,7 +165,9 @@ if __name__ == "__main__":
 
         # GAE COMPUTATION (with proper done handling)
         with torch.no_grad():
-            next_value = actor_critic.value(state_to_tensor(obs, device=device)).squeeze()
+            next_value = actor_critic.value(
+                state_to_tensor(obs, device=device)
+            ).squeeze()
 
         advantages = torch.zeros(config.rollout_steps, device=device)
         gae = 0.0
@@ -226,7 +227,11 @@ if __name__ == "__main__":
                 entropy_loss = -entropy.mean()
 
                 # total loss and update
-                total_loss = policy_loss + config.vf_coef * value_loss + config.ent_coef * entropy_loss
+                total_loss = (
+                    policy_loss
+                    + config.vf_coef * value_loss
+                    + config.ent_coef * entropy_loss
+                )
 
                 ac_optimizer.zero_grad()
                 total_loss.backward()
@@ -254,8 +259,3 @@ if __name__ == "__main__":
     plt.title("Reward")
     plt.legend()
     plt.show()
-
-    # save the model
-    os.makedirs("models_cheetah", exist_ok=True)
-    torch.save(actor_critic.state_dict(), "models_cheetah/cheetah_ppo_vec_ac.pth")
-    print("Model saved to models_cheetah/cheetah_ppo_vec_ac.pth")
