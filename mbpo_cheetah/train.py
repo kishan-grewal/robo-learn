@@ -53,6 +53,8 @@ DYNAMICS_LR = 3e-4  # for dynamics, not actor or critic
 
 # DATA CLASSES
 class Config:
+    seed: int = 19
+
     lr: float = 3e-4  # for actor, critic, but not dynamics
 
     total_timesteps: int = 300_000
@@ -322,11 +324,16 @@ class TwinCritic(nn.Module):
 
 
 if __name__ == "__main__":
+    config = Config()
+
+    # seed random
+    random.seed(config.seed)
+    np.random.seed(config.seed)
+    torch.manual_seed(config.seed)
+
     env = gym.make("HalfCheetah-v5")
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
-
-    config = Config()
 
     actor = Actor(
         state_dim,

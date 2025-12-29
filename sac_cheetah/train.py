@@ -43,6 +43,7 @@ LOG_STD_MAX = 2.0
 
 # DATA CLASSES
 class Config:
+    seed: int = 19
     total_timesteps: int = 300000
     buffer_size: int = 100000
     min_buffer_train: int = 1000
@@ -159,11 +160,16 @@ class TwinCritic(nn.Module):
 
 
 if __name__ == "__main__":
+    config = Config()
+
+    # seed random
+    random.seed(config.seed)
+    np.random.seed(config.seed)
+    torch.manual_seed(config.seed)
+
     env = gym.make("HalfCheetah-v5")
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
-
-    config = Config()
 
     actor = Actor(
         state_dim, action_dim, HIDDEN_LAYER_NODES_ACTOR, LOG_STD_MIN, LOG_STD_MAX
