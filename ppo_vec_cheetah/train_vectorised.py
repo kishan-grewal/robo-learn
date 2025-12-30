@@ -16,10 +16,10 @@ class Config:
     # higher level parameters
     seed: int = 19
     action_high: float = 1.0
-    total_timesteps: int = 200_000
+    total_timesteps: int = 1_000_000
     # rollout_steps: int = 2_048  # 200_000 steps but we stop to train every 2_048
     # rollout_steps = num_envs * rollouts_per_env
-    num_envs: int = 16  # number of parallel environments
+    num_envs: int = 32  # number of parallel environments
     rollouts_per_env: int = 128  # number of rollouts per parallel env
     minibatch_size: int = 256  # we train on those 2_048 in 256 chunks
 
@@ -294,15 +294,16 @@ if __name__ == "__main__":
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
 
+    def make_env():
+        return gym.make("HalfCheetah-v5")
+
     # sync vector env for 16 parallel environments
-    env = gym.vector.SyncVectorEnv(
-        [gym.make("HalfCheetah-v5") for _ in range(config.num_envs)]
-    )
+    env = gym.vector.SyncVectorEnv([make_env for _ in range(config.num_envs)])
     # we place [t, env, ..] not [env, t, ..] because
     # then we can index by time easier, which we index by more than env
 
-    state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.shape[0]
+    state_dim = env.observation_space.shape[1]
+    action_dim = env.action_space.shape[1]
 
     actor_critic = ActorCritic(state_dim, action_dim, config).to(device=device)
     ac_optimizer = optim.Adam(actor_critic.parameters(), lr=config.lr)
@@ -321,9 +322,11 @@ if __name__ == "__main__":
 
     total_reward_array = []
     global_step = 0
-    num_updates = config.total_timesteps // config.rollout_steps
+    rollout_steps = config.num_envs * config.rollouts_per_env
+    num_updates = config.total_timesteps // rollout_steps
 
     obs, _ = env.reset()
+    episode_rewards = np.zeros(config.num_envs)
 
     for update in trange(num_updates):
         # ROLLOUT COLLECTION (this part is given - it's just stepping the envs)
@@ -348,14 +351,18 @@ if __name__ == "__main__":
             value_buff[step] = value
 
             obs = next_obs
-            if "final_info" in info:
-                for env_info in info["final_info"]:
-                    if env_info is not None and "episode" in env_info:
-                        total_reward_array.append(env_info["episode"]["r"])
+            episode_rewards += reward
+
+            # check which envs terminated or truncated
+            for i in range(config.num_envs):
+                if done[i]:
+                    total_reward_array.append(episode_rewards[i])
+                    episode_rewards[i] = 0.0
 
         # GAE COMPUTATION
         with torch.no_grad():
-            next_value = actor_critic.value(obs)
+            obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)
+            next_value = actor_critic.value(obs_tensor)
 
         advantages = compute_gae(
             reward_buff,
