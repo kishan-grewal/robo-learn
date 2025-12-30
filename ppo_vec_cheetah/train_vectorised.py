@@ -42,7 +42,7 @@ class Config:
     log_std_max: float = 1.0
 
     # total loss coefficients
-    ent_coef: float = 0.01
+    ent_coef: float = 0.0
     vf_coef: float = 0.5
 
 
